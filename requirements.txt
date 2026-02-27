@@ -1,0 +1,5 @@
+snowflake-cli
+crewai
+crewai-tools
+snowflake-connector-python
+python-dotenv
