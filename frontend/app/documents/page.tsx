@@ -144,9 +144,6 @@ export default function DocumentsPage() {
   const selectedLines = selectedDocId ? (linesByDoc[selectedDocId] ?? []) : [];
   const selectedDoc = docs.find((d) => String(d.DOC_ID) === selectedDocId);
   const extractedDocs = docs.filter((d) => (linesByDoc[String(d.DOC_ID)]?.length ?? 0) > 0);
-  const avgConfidence = lines.length > 0
-    ? lines.reduce((s, l) => s + (l.EXTRACTION_CONFIDENCE ?? 0), 0) / lines.length
-    : 0;
 
   function handleUpload(e: React.FormEvent) {
     e.preventDefault();
@@ -206,7 +203,7 @@ export default function DocumentsPage() {
       />
 
       {/* Metrics */}
-      <div className="grid grid-cols-3 gap-4 mb-6">
+      <div className="grid grid-cols-2 gap-4 mb-6">
         <MetricCard
           title="Documents"
           value={`${extractedDocs.length} / ${docs.length}`}
@@ -214,12 +211,6 @@ export default function DocumentsPage() {
           deltaPositive={extractedDocs.length === docs.length && docs.length > 0}
         />
         <MetricCard title="Extracted Lines" value={lines.length} />
-        <MetricCard
-          title="Avg Confidence"
-          value={`${(avgConfidence * 100).toFixed(1)}%`}
-          description={avgConfidence >= 0.7 ? "Within threshold" : "Below threshold"}
-          deltaPositive={avgConfidence >= 0.7}
-        />
       </div>
 
       {/* Upload form */}
@@ -320,25 +311,20 @@ export default function DocumentsPage() {
                       <th className="px-3 py-2 text-left font-semibold text-slate-600 border-b border-slate-200">Project code</th>
                       <th className="px-3 py-2 text-left font-semibold text-slate-600 border-b border-slate-200 max-w-[200px]">Project</th>
                       <th className="px-3 py-2 text-right font-semibold text-slate-600 border-b border-slate-200">Hours</th>
-                      <th className="px-3 py-2 text-right font-semibold text-slate-600 border-b border-slate-200">Conf.</th>
                     </tr>
                   </thead>
                   <tbody>
                     {selectedLines.map((line, i) => {
-                      const conf = line.EXTRACTION_CONFIDENCE;
-                      const confColor = conf == null ? "text-slate-400" : conf >= 0.8 ? "text-green-600" : conf >= 0.6 ? "text-yellow-600" : "text-red-600";
+                      const lowConf = (line.EXTRACTION_CONFIDENCE ?? 1) <= 0.75;
                       return (
-                        <tr key={line.LINE_ID} className={i % 2 === 0 ? "bg-white" : "bg-slate-50"}>
-                          <td className="px-3 py-2 border-b border-slate-100">{line.WORKER ?? "—"}</td>
+                        <tr key={line.LINE_ID} className={lowConf ? "bg-amber-50" : i % 2 === 0 ? "bg-white" : "bg-slate-50"}>
+                          <td className={`px-3 py-2 border-b border-slate-100 ${lowConf ? "border-l-2 border-l-amber-400" : ""}`}>{line.WORKER ?? "—"}</td>
                           <td className="px-3 py-2 border-b border-slate-100 whitespace-nowrap">{line.WORK_DATE ?? "—"}</td>
                           <td className="px-3 py-2 border-b border-slate-100 font-mono text-[10px] text-blue-700">{line.PROJECT_CODE ?? "—"}</td>
                           <td className="px-3 py-2 border-b border-slate-100 max-w-[200px]">
                             <div className="truncate text-[10px] text-slate-500" title={line.PROJECT ?? ""}>{line.PROJECT ?? "—"}</div>
                           </td>
                           <td className="px-3 py-2 border-b border-slate-100 text-right font-mono">{line.HOURS?.toFixed(1) ?? "—"}</td>
-                          <td className={`px-3 py-2 border-b border-slate-100 text-right font-mono ${confColor}`}>
-                            {conf != null ? `${(conf * 100).toFixed(0)}%` : "—"}
-                          </td>
                         </tr>
                       );
                     })}
@@ -349,7 +335,6 @@ export default function DocumentsPage() {
                       <td className="px-3 py-2 text-right font-mono">
                         {selectedLines.reduce((s, l) => s + (l.HOURS ?? 0), 0).toFixed(1)}
                       </td>
-                      <td />
                     </tr>
                   </tfoot>
                 </table>

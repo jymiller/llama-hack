@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS EXTRACTED_LINES (
     hours DECIMAL(5,2),
     extraction_confidence DECIMAL(3,2),  -- 0.00 to 1.00
     raw_text_snippet TEXT,
+    raw_line_json VARIANT,
     created_ts TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP()
 );
 
@@ -393,10 +394,10 @@ Return ONLY valid JSON (no markdown, no extra text):
 
         INSERT INTO EXTRACTED_LINES
             (line_id, doc_id, worker, work_date, project, project_code, hours,
-             extraction_confidence, raw_text_snippet)
+             extraction_confidence, raw_text_snippet, raw_line_json)
         VALUES
             (:line_id_val, :P_DOC_ID, :worker_val, :work_date_val::DATE, :project_val,
-             :project_code_val, :hours_val, :confidence_val, :snippet_val);
+             :project_code_val, :hours_val, :confidence_val, :snippet_val, :line_obj);
 
         i := :i + 1;
     END WHILE;
@@ -480,7 +481,7 @@ Return ONLY valid JSON (no markdown, no extra text):
     -- Single set-based INSERT: Snowflake parallelises CORTEX.COMPLETE across rows
     INSERT INTO EXTRACTED_LINES
         (line_id, doc_id, worker, work_date, project, project_code, hours,
-         extraction_confidence, raw_text_snippet)
+         extraction_confidence, raw_text_snippet, raw_line_json)
     WITH raw_responses AS (
         SELECT
             d.doc_id,
@@ -520,7 +521,8 @@ Return ONLY valid JSON (no markdown, no extra text):
         line_obj:project_code::VARCHAR              AS project_code,
         line_obj:hours::DECIMAL(5,2)                AS hours,
         line_obj:extraction_confidence::DECIMAL(3,2) AS extraction_confidence,
-        line_obj:raw_text_snippet::VARCHAR           AS raw_text_snippet
+        line_obj:raw_text_snippet::VARCHAR           AS raw_text_snippet,
+        line_obj                                     AS raw_line_json
     FROM flattened;
 
     -- Mark all docs as completed
