@@ -407,19 +407,18 @@ export default function GroundTruthPage() {
             </button>
           </div>
 
-          <div className="flex min-h-[420px]">
-            {/* Image */}
-            <div className="w-[340px] shrink-0 border-r border-slate-200 bg-slate-50 flex items-start justify-center p-3">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={`/api/documents/${selectedDocId}/image`}
-                alt={selectedDocId}
-                className="max-w-full max-h-[600px] object-contain rounded shadow-sm"
-              />
-            </div>
+          {/* Image — full width above the grid */}
+          <div className="bg-slate-50 border-b border-slate-200 flex justify-center p-4">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={`/api/documents/${selectedDocId}/image`}
+              alt={selectedDocId}
+              className="max-h-[480px] w-auto object-contain rounded shadow-sm"
+            />
+          </div>
 
-            {/* Hours grid */}
-            <div className="flex-1 overflow-auto p-4">
+          {/* Hours grid */}
+          <div className="overflow-auto p-4">
               {dates.length === 0 && rows.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-40 gap-2 text-slate-400">
                   <p className="text-sm">No extracted lines for this document yet.</p>
@@ -611,7 +610,6 @@ export default function GroundTruthPage() {
                 <Plus className="h-3.5 w-3.5 mr-1.5" />
                 Add project row
               </Button>
-            </div>
           </div>
         </div>
       )}
