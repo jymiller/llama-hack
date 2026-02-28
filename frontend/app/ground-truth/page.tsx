@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { toast } from "sonner";
-import { Save, Plus, Trash2, CheckSquare, Square } from "lucide-react";
+import { Save, Plus, Trash2, CheckSquare, Square, ZoomIn, ZoomOut, Maximize2 } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -63,6 +63,127 @@ interface GTRow {
   projectName: string;
   worker: string;
   hours: Record<string, string>; // date → string
+}
+
+// ── Zoomable image viewer ─────────────────────────────────────────────────────
+
+const DEFAULT_ZOOM = 1.8;
+// Pan offset to show the bottom third: shift image up by ~40% of its height at default zoom
+const DEFAULT_PAN = { x: 0, y: -0.28 }; // fraction of container height
+
+function ImageViewer({ src, alt }: { src: string; alt: string }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [zoom, setZoom] = useState(DEFAULT_ZOOM);
+  const [pan, setPan] = useState(DEFAULT_PAN);
+  const dragging = useRef(false);
+  const lastPos = useRef({ x: 0, y: 0 });
+
+  const resetView = useCallback(() => {
+    setZoom(DEFAULT_ZOOM);
+    setPan(DEFAULT_PAN);
+  }, []);
+
+  const clampPan = useCallback(
+    (x: number, y: number, z: number) => {
+      const limit = (z - 1) / 2;
+      return {
+        x: Math.max(-limit, Math.min(limit, x)),
+        y: Math.max(-limit, Math.min(limit, y)),
+      };
+    },
+    []
+  );
+
+  const onWheel = useCallback(
+    (e: React.WheelEvent) => {
+      e.preventDefault();
+      setZoom((prev) => {
+        const next = Math.max(0.5, Math.min(5, prev - e.deltaY * 0.001));
+        setPan((p) => clampPan(p.x, p.y, next));
+        return next;
+      });
+    },
+    [clampPan]
+  );
+
+  const onPointerDown = useCallback((e: React.PointerEvent) => {
+    dragging.current = true;
+    lastPos.current = { x: e.clientX, y: e.clientY };
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+  }, []);
+
+  const onPointerMove = useCallback(
+    (e: React.PointerEvent) => {
+      if (!dragging.current) return;
+      const container = containerRef.current;
+      if (!container) return;
+      const { width, height } = container.getBoundingClientRect();
+      const dx = (e.clientX - lastPos.current.x) / width;
+      const dy = (e.clientY - lastPos.current.y) / height;
+      lastPos.current = { x: e.clientX, y: e.clientY };
+      setPan((prev) => {
+        const next = clampPan(prev.x + dx, prev.y + dy, zoom);
+        return next;
+      });
+    },
+    [zoom, clampPan]
+  );
+
+  const onPointerUp = useCallback(() => {
+    dragging.current = false;
+  }, []);
+
+  const transform = `scale(${zoom}) translate(${(pan.x * 100) / zoom}%, ${(pan.y * 100) / zoom}%)`;
+
+  return (
+    <div className="relative bg-slate-900 border-b border-slate-200 select-none" style={{ height: 340 }}>
+      {/* Controls */}
+      <div className="absolute top-2 right-2 z-10 flex items-center gap-1">
+        <button
+          onClick={() => setZoom((z) => { const n = Math.min(5, +(z + 0.25).toFixed(2)); setPan((p) => clampPan(p.x, p.y, n)); return n; })}
+          className="p-1.5 rounded bg-black/50 text-white hover:bg-black/70 transition-colors"
+          title="Zoom in"
+        >
+          <ZoomIn className="h-4 w-4" />
+        </button>
+        <button
+          onClick={() => setZoom((z) => { const n = Math.max(0.5, +(z - 0.25).toFixed(2)); setPan((p) => clampPan(p.x, p.y, n)); return n; })}
+          className="p-1.5 rounded bg-black/50 text-white hover:bg-black/70 transition-colors"
+          title="Zoom out"
+        >
+          <ZoomOut className="h-4 w-4" />
+        </button>
+        <button
+          onClick={resetView}
+          className="p-1.5 rounded bg-black/50 text-white hover:bg-black/70 transition-colors"
+          title="Reset view"
+        >
+          <Maximize2 className="h-4 w-4" />
+        </button>
+        <span className="text-[10px] text-white/60 ml-1 font-mono">{Math.round(zoom * 100)}%</span>
+      </div>
+
+      {/* Viewport */}
+      <div
+        ref={containerRef}
+        className="w-full h-full overflow-hidden cursor-grab active:cursor-grabbing"
+        onWheel={onWheel}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerLeave={onPointerUp}
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={src}
+          alt={alt}
+          draggable={false}
+          className="w-full h-full object-contain transition-transform duration-75"
+          style={{ transform, transformOrigin: "center center" }}
+        />
+      </div>
+    </div>
+  );
 }
 
 // ── Doc thumbnail card ────────────────────────────────────────────────────────
@@ -407,15 +528,11 @@ export default function GroundTruthPage() {
             </button>
           </div>
 
-          {/* Image — full width above the grid */}
-          <div className="bg-slate-50 border-b border-slate-200 flex justify-center p-4">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={`/api/documents/${selectedDocId}/image`}
-              alt={selectedDocId}
-              className="max-h-[480px] w-auto object-contain rounded shadow-sm"
-            />
-          </div>
+          {/* Zoomable image — full width above the grid */}
+          <ImageViewer
+            src={`/api/documents/${selectedDocId}/image`}
+            alt={selectedDocId}
+          />
 
           {/* Hours grid */}
           <div className="overflow-auto p-4">
