@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { toast } from "sonner";
-import { RefreshCw, CheckCircle, AlertTriangle, Circle, GitMerge, Trash2, Info } from "lucide-react";
+import { RefreshCw, CheckCircle, AlertTriangle, Circle, GitMerge, Trash2, Info, ShieldCheck } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -58,7 +58,58 @@ function ConfirmedIcon({ confirmed }: { confirmed: boolean }) {
   );
 }
 
-export default function MasterDataPage() {
+function NicknameCell({
+  value,
+  placeholder,
+  onSave,
+}: {
+  value: string | null;
+  placeholder: string;
+  onSave: (nickname: string | null) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value ?? "");
+
+  function commit() {
+    setEditing(false);
+    const trimmed = draft.trim();
+    const next = trimmed === "" ? null : trimmed;
+    if (next !== value) onSave(next);
+  }
+
+  if (editing) {
+    return (
+      <Input
+        autoFocus
+        className="h-6 text-xs px-2 w-36"
+        value={draft}
+        placeholder={placeholder}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") commit();
+          if (e.key === "Escape") { setDraft(value ?? ""); setEditing(false); }
+        }}
+      />
+    );
+  }
+
+  return (
+    <button
+      onClick={() => { setDraft(value ?? ""); setEditing(true); }}
+      className={`text-xs px-2 py-0.5 rounded border border-dashed transition-colors text-left w-36 truncate ${
+        value
+          ? "border-violet-300 text-violet-700 bg-violet-50 hover:bg-violet-100"
+          : "border-slate-200 text-slate-400 hover:border-slate-400 hover:text-slate-600"
+      }`}
+      title={value ? `Nickname: ${value} — click to edit` : "Click to set nickname"}
+    >
+      {value ?? "Set nickname…"}
+    </button>
+  );
+}
+
+export default function DataGovernancePage() {
   const [tab, setTab] = useState<Tab>("projects");
   const [mergeSource, setMergeSource] = useState("");
   const [mergeTarget, setMergeTarget] = useState("");
@@ -156,6 +207,28 @@ export default function MasterDataPage() {
     );
   }
 
+  function handleSaveWorkerNickname(workerKey: string, nickname: string | null) {
+    toast.promise(
+      confirmWorker.mutateAsync({ worker_key: workerKey, nickname }),
+      {
+        loading: "Saving nickname…",
+        success: nickname ? `Nickname set to "${nickname}"` : "Nickname cleared",
+        error: (e) => `Error: ${e}`,
+      }
+    );
+  }
+
+  function handleSaveProjectNickname(projectCode: string, nickname: string | null) {
+    toast.promise(
+      confirmProject.mutateAsync({ project_code: projectCode, nickname }),
+      {
+        loading: "Saving nickname…",
+        success: nickname ? `Nickname set to "${nickname}"` : "Nickname cleared",
+        error: (e) => `Error: ${e}`,
+      }
+    );
+  }
+
   const projects = projectData?.projects ?? [];
   const projectSuspects = projectData?.suspects ?? [];
   const workers = workerData?.workers ?? [];
@@ -166,7 +239,6 @@ export default function MasterDataPage() {
   const unconfirmedWorkers = workers.filter((w) => !w.CONFIRMED);
   const confirmedWorkers = workers.filter((w) => w.CONFIRMED && w.IS_ACTIVE);
 
-  // Derive overall data health
   const pendingSuspects = projectSuspects.filter(
     (s) => !merges.some((m) => m.SOURCE_CODE === s.EXTRACTED_CODE)
   );
@@ -178,8 +250,8 @@ export default function MasterDataPage() {
   return (
     <div className="flex flex-col">
       <PageHeader
-        title="Master Data"
-        description="The canonical list of project codes and workers used across all documents."
+        title="Data Governance"
+        description="Canonical project codes and worker identities. Set nicknames to replace real names in all output views."
         actions={
           <div className="flex gap-2">
             {merges.length > 0 && (
@@ -195,6 +267,14 @@ export default function MasterDataPage() {
           </div>
         }
       />
+
+      {/* ── Privacy notice ── */}
+      <div className="rounded-lg border border-violet-200 bg-violet-50 p-3 mb-4 flex items-start gap-2">
+        <ShieldCheck className="h-4 w-4 text-violet-600 shrink-0 mt-0.5" />
+        <p className="text-xs text-violet-800">
+          <strong>Privacy control:</strong> Set a <em>Nickname</em> for any confirmed worker or project to replace the real name in all output views (Trusted Ledger, Reconciliation, exports). The original name is retained here for reference only. Click any nickname cell to edit — press Enter or click away to save.
+        </p>
+      </div>
 
       {/* ── Workflow guide ── */}
       <div className={`rounded-lg border p-4 mb-6 ${isClean ? "border-green-200 bg-green-50" : "border-blue-200 bg-blue-50"}`}>
@@ -283,8 +363,8 @@ export default function MasterDataPage() {
         <div className="space-y-6">
           <p className="text-sm text-slate-500">
             These are the authoritative project codes. Codes are added automatically when extraction runs.
-            <strong> Confirming</strong> a code means you&apos;ve verified it&apos;s a real project — it will then be used as a reference to detect future OCR misreads.
-            Codes in the <em>pending review</em> queue were either newly seen or flagged as fuzzy matches.
+            <strong> Confirming</strong> a code means you&apos;ve verified it&apos;s a real project.
+            Use the <strong className="text-violet-700">Nickname</strong> column to substitute a privacy alias that replaces the client&apos;s real project name in all output views.
           </p>
 
           {/* Fuzzy-match suspects banner */}
@@ -339,7 +419,6 @@ export default function MasterDataPage() {
                     <th className="px-3 py-2 border border-slate-200 font-semibold">Project name</th>
                     <th className="px-3 py-2 border border-slate-200 font-semibold">Source</th>
                     <th className="px-3 py-2 border border-slate-200 font-semibold">First seen</th>
-                    <th className="px-3 py-2 border border-slate-200 font-semibold">Curation note</th>
                     <th className="px-3 py-2 border border-slate-200 font-semibold">Action</th>
                   </tr>
                 </thead>
@@ -362,11 +441,6 @@ export default function MasterDataPage() {
                       </td>
                       <td className="px-3 py-2 border border-slate-200 text-slate-500">
                         {p.FIRST_SEEN ?? "—"}
-                      </td>
-                      <td className="px-3 py-2 border border-slate-200 text-slate-500 max-w-[220px]">
-                        <div className="truncate text-[10px]" title={p.CURATION_NOTE ?? ""}>
-                          {p.CURATION_NOTE ?? "—"}
-                        </div>
                       </td>
                       <td className="px-3 py-2 border border-slate-200">
                         <Button
@@ -392,7 +466,7 @@ export default function MasterDataPage() {
               Confirmed master list ({confirmedProjects.length})
             </h3>
             <p className="text-xs text-slate-400 mb-2">
-              These are the canonical project codes. OCR misreads of these codes will be automatically detected and suggested for merging.
+              Click any <span className="text-violet-600 font-medium">Nickname</span> cell to set a privacy alias — it will replace the real project name everywhere in output views.
             </p>
             {projLoading ? (
               <p className="text-sm text-muted-foreground">Loading…</p>
@@ -405,9 +479,13 @@ export default function MasterDataPage() {
                     <th className="px-3 py-2 border border-slate-200 font-semibold w-6"></th>
                     <th className="px-3 py-2 border border-slate-200 font-semibold">Code</th>
                     <th className="px-3 py-2 border border-slate-200 font-semibold">Project name</th>
+                    <th className="px-3 py-2 border border-slate-200 font-semibold">
+                      <span className="text-violet-700 flex items-center gap-1">
+                        <ShieldCheck className="h-3 w-3" /> Nickname
+                      </span>
+                    </th>
                     <th className="px-3 py-2 border border-slate-200 font-semibold">Source</th>
                     <th className="px-3 py-2 border border-slate-200 font-semibold">First seen</th>
-                    <th className="px-3 py-2 border border-slate-200 font-semibold">Curation note</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -419,8 +497,15 @@ export default function MasterDataPage() {
                       <td className="px-3 py-2 border border-slate-200 font-mono text-[11px] text-blue-800">
                         {p.PROJECT_CODE}
                       </td>
-                      <td className="px-3 py-2 border border-slate-200 max-w-[280px]">
-                        <div className="truncate" title={p.PROJECT_NAME ?? ""}>{p.PROJECT_NAME}</div>
+                      <td className="px-3 py-2 border border-slate-200 max-w-[260px]">
+                        <div className="truncate text-slate-500" title={p.PROJECT_NAME ?? ""}>{p.PROJECT_NAME}</div>
+                      </td>
+                      <td className="px-3 py-2 border border-slate-200">
+                        <NicknameCell
+                          value={p.NICKNAME}
+                          placeholder="e.g. Project Alpha"
+                          onSave={(nickname) => handleSaveProjectNickname(p.PROJECT_CODE, nickname)}
+                        />
                       </td>
                       <td className="px-3 py-2 border border-slate-200">
                         <SourceBadge source={p.CURATION_SOURCE} />
@@ -428,10 +513,154 @@ export default function MasterDataPage() {
                       <td className="px-3 py-2 border border-slate-200 text-slate-500">
                         {p.FIRST_SEEN ?? "—"}
                       </td>
-                      <td className="px-3 py-2 border border-slate-200 text-slate-400 text-[10px] max-w-[220px]">
-                        <div className="truncate" title={p.CURATION_NOTE ?? ""}>
-                          {p.CURATION_NOTE ?? "—"}
-                        </div>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </section>
+        </div>
+      )}
+
+      {/* ── Workers tab ── */}
+      {tab === "workers" && (
+        <div className="space-y-6">
+          <p className="text-sm text-slate-500">
+            The canonical list of workers. Confirming a worker means you&apos;ve verified the name is correctly identified — confirmed workers are used to detect future name variations.
+            Use the <strong className="text-violet-700">Nickname</strong> column to substitute a privacy alias that replaces the real worker name in all output views.
+          </p>
+
+          {/* Fuzzy-match suspects banner */}
+          {workerSuspects.length > 0 && (
+            <div className="rounded-lg border border-amber-300 bg-amber-50 p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <AlertTriangle className="h-4 w-4 text-amber-600" />
+                <span className="text-sm font-semibold text-amber-800">
+                  {workerSuspects.length} possible worker name variant(s) detected
+                </span>
+              </div>
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="text-amber-700 font-semibold">
+                    <th className="text-left py-1 pr-4">Extracted name</th>
+                    <th className="text-left py-1 pr-4">Closest master</th>
+                    <th className="text-left py-1 pr-4">Edit dist</th>
+                    <th className="text-left py-1 pr-4">Doc</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {workerSuspects.map((s) => (
+                    <tr key={s.LINE_ID} className="border-t border-amber-200">
+                      <td className="py-1 pr-4 text-red-700">{s.EXTRACTED_WORKER}</td>
+                      <td className="py-1 pr-4 text-green-700">{s.MASTER_DISPLAY_NAME}</td>
+                      <td className="py-1 pr-4 text-center">{s.EDIT_DIST}</td>
+                      <td className="py-1 pr-4 text-slate-500">{s.DOC_ID}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* Unconfirmed queue */}
+          {unconfirmedWorkers.length > 0 && (
+            <section>
+              <h3 className="text-sm font-semibold text-slate-700 mb-1">
+                Pending review ({unconfirmedWorkers.length})
+              </h3>
+              <p className="text-xs text-slate-400 mb-2">
+                These worker names appeared in extracted data but haven&apos;t been verified yet.
+              </p>
+              <table className="w-full text-xs border-collapse">
+                <thead>
+                  <tr className="bg-slate-100 text-left">
+                    <th className="px-3 py-2 border border-slate-200 font-semibold">Worker key</th>
+                    <th className="px-3 py-2 border border-slate-200 font-semibold">Display name</th>
+                    <th className="px-3 py-2 border border-slate-200 font-semibold">Source</th>
+                    <th className="px-3 py-2 border border-slate-200 font-semibold">First seen</th>
+                    <th className="px-3 py-2 border border-slate-200 font-semibold">Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {unconfirmedWorkers.map((w) => (
+                    <tr key={w.WORKER_KEY} className="bg-white">
+                      <td className="px-3 py-2 border border-slate-200 font-mono text-[11px]">
+                        {w.WORKER_KEY}
+                      </td>
+                      <td className="px-3 py-2 border border-slate-200">{w.DISPLAY_NAME}</td>
+                      <td className="px-3 py-2 border border-slate-200">
+                        <SourceBadge source={w.CURATION_SOURCE} />
+                      </td>
+                      <td className="px-3 py-2 border border-slate-200 text-slate-500">
+                        {w.FIRST_SEEN ?? "—"}
+                      </td>
+                      <td className="px-3 py-2 border border-slate-200">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-6 text-[11px] px-2"
+                          onClick={() => handleConfirmWorker(w)}
+                          disabled={confirmWorker.isPending}
+                        >
+                          Confirm
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </section>
+          )}
+
+          {/* Confirmed master list */}
+          <section>
+            <h3 className="text-sm font-semibold text-slate-700 mb-1">
+              Confirmed master list ({confirmedWorkers.length})
+            </h3>
+            <p className="text-xs text-slate-400 mb-2">
+              Click any <span className="text-violet-600 font-medium">Nickname</span> cell to set a privacy alias — it replaces the real name everywhere in the app.
+            </p>
+            {wrkLoading ? (
+              <p className="text-sm text-muted-foreground">Loading…</p>
+            ) : confirmedWorkers.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No confirmed workers yet.</p>
+            ) : (
+              <table className="w-full text-xs border-collapse">
+                <thead>
+                  <tr className="bg-slate-100 text-left">
+                    <th className="px-3 py-2 border border-slate-200 font-semibold w-6"></th>
+                    <th className="px-3 py-2 border border-slate-200 font-semibold">Display name</th>
+                    <th className="px-3 py-2 border border-slate-200 font-semibold">
+                      <span className="text-violet-700 flex items-center gap-1">
+                        <ShieldCheck className="h-3 w-3" /> Nickname
+                      </span>
+                    </th>
+                    <th className="px-3 py-2 border border-slate-200 font-semibold">Source</th>
+                    <th className="px-3 py-2 border border-slate-200 font-semibold">First seen</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {confirmedWorkers.map((w, i) => (
+                    <tr key={w.WORKER_KEY} className={i % 2 === 0 ? "bg-white" : "bg-slate-50"}>
+                      <td className="px-3 py-2 border border-slate-200">
+                        <ConfirmedIcon confirmed={w.CONFIRMED} />
+                      </td>
+                      <td className="px-3 py-2 border border-slate-200 font-medium">
+                        {w.DISPLAY_NAME}
+                        <div className="text-[10px] text-slate-400 font-mono font-normal">{w.WORKER_KEY}</div>
+                      </td>
+                      <td className="px-3 py-2 border border-slate-200">
+                        <NicknameCell
+                          value={w.NICKNAME}
+                          placeholder="e.g. Consultant A"
+                          onSave={(nickname) => handleSaveWorkerNickname(w.WORKER_KEY, nickname)}
+                        />
+                      </td>
+                      <td className="px-3 py-2 border border-slate-200">
+                        <SourceBadge source={w.CURATION_SOURCE} />
+                      </td>
+                      <td className="px-3 py-2 border border-slate-200 text-slate-500">
+                        {w.FIRST_SEEN ?? "—"}
                       </td>
                     </tr>
                   ))}
@@ -528,7 +757,6 @@ export default function MasterDataPage() {
             {merges.length === 0 ? (
               <p className="text-sm text-muted-foreground">No merges defined yet.</p>
             ) : (() => {
-              // Group by target (canonical) code
               const groups: Record<string, typeof merges> = {};
               for (const m of merges) {
                 if (!groups[m.TARGET_CODE]) groups[m.TARGET_CODE] = [];
@@ -538,7 +766,6 @@ export default function MasterDataPage() {
                 <div className="space-y-3">
                   {Object.entries(groups).map(([target, group]) => (
                     <div key={target} className="rounded-lg border border-slate-200 overflow-hidden">
-                      {/* Canonical header */}
                       <div className="bg-slate-100 px-4 py-2 flex items-center gap-3">
                         <span className="font-mono text-sm font-semibold text-green-800">{target}</span>
                         <span className="text-xs text-slate-500 flex-1 truncate" title={group[0].TARGET_NAME ?? ""}>
@@ -546,7 +773,6 @@ export default function MasterDataPage() {
                         </span>
                         <span className="text-xs text-slate-400">{group.length} source{group.length !== 1 ? "s" : ""} merged in</span>
                       </div>
-                      {/* Source rows */}
                       <table className="w-full text-xs border-collapse">
                         <thead>
                           <tr className="bg-white border-b border-slate-200 text-slate-500">
@@ -708,152 +934,6 @@ export default function MasterDataPage() {
               </section>
             ));
           })()}
-        </div>
-      )}
-
-      {/* ── Workers tab ── */}
-      {tab === "workers" && (
-        <div className="space-y-6">
-          <p className="text-sm text-slate-500">
-            The canonical list of workers. Confirming a worker means you&apos;ve verified the name is correctly identified — confirmed workers are used to detect future name variations.
-          </p>
-
-          {/* Fuzzy-match suspects banner */}
-          {workerSuspects.length > 0 && (
-            <div className="rounded-lg border border-amber-300 bg-amber-50 p-4">
-              <div className="flex items-center gap-2 mb-3">
-                <AlertTriangle className="h-4 w-4 text-amber-600" />
-                <span className="text-sm font-semibold text-amber-800">
-                  {workerSuspects.length} possible worker name variant(s) detected
-                </span>
-              </div>
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="text-amber-700 font-semibold">
-                    <th className="text-left py-1 pr-4">Extracted name</th>
-                    <th className="text-left py-1 pr-4">Closest master</th>
-                    <th className="text-left py-1 pr-4">Edit dist</th>
-                    <th className="text-left py-1 pr-4">Doc</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {workerSuspects.map((s) => (
-                    <tr key={s.LINE_ID} className="border-t border-amber-200">
-                      <td className="py-1 pr-4 text-red-700">{s.EXTRACTED_WORKER}</td>
-                      <td className="py-1 pr-4 text-green-700">{s.MASTER_DISPLAY_NAME}</td>
-                      <td className="py-1 pr-4 text-center">{s.EDIT_DIST}</td>
-                      <td className="py-1 pr-4 text-slate-500">{s.DOC_ID}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-
-          {/* Unconfirmed queue */}
-          {unconfirmedWorkers.length > 0 && (
-            <section>
-              <h3 className="text-sm font-semibold text-slate-700 mb-1">
-                Pending review ({unconfirmedWorkers.length})
-              </h3>
-              <p className="text-xs text-slate-400 mb-2">
-                These worker names appeared in extracted data but haven&apos;t been verified yet.
-              </p>
-              <table className="w-full text-xs border-collapse">
-                <thead>
-                  <tr className="bg-slate-100 text-left">
-                    <th className="px-3 py-2 border border-slate-200 font-semibold">Worker key</th>
-                    <th className="px-3 py-2 border border-slate-200 font-semibold">Display name</th>
-                    <th className="px-3 py-2 border border-slate-200 font-semibold">Source</th>
-                    <th className="px-3 py-2 border border-slate-200 font-semibold">First seen</th>
-                    <th className="px-3 py-2 border border-slate-200 font-semibold">Curation note</th>
-                    <th className="px-3 py-2 border border-slate-200 font-semibold">Action</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {unconfirmedWorkers.map((w) => (
-                    <tr key={w.WORKER_KEY} className="bg-white">
-                      <td className="px-3 py-2 border border-slate-200 font-mono text-[11px]">
-                        {w.WORKER_KEY}
-                      </td>
-                      <td className="px-3 py-2 border border-slate-200">{w.DISPLAY_NAME}</td>
-                      <td className="px-3 py-2 border border-slate-200">
-                        <SourceBadge source={w.CURATION_SOURCE} />
-                      </td>
-                      <td className="px-3 py-2 border border-slate-200 text-slate-500">
-                        {w.FIRST_SEEN ?? "—"}
-                      </td>
-                      <td className="px-3 py-2 border border-slate-200 text-slate-500 text-[10px] max-w-[220px]">
-                        <div className="truncate" title={w.CURATION_NOTE ?? ""}>
-                          {w.CURATION_NOTE ?? "—"}
-                        </div>
-                      </td>
-                      <td className="px-3 py-2 border border-slate-200">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="h-6 text-[11px] px-2"
-                          onClick={() => handleConfirmWorker(w)}
-                          disabled={confirmWorker.isPending}
-                        >
-                          Confirm
-                        </Button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </section>
-          )}
-
-          {/* Confirmed master list */}
-          <section>
-            <h3 className="text-sm font-semibold text-slate-700 mb-1">
-              Confirmed master list ({confirmedWorkers.length})
-            </h3>
-            {wrkLoading ? (
-              <p className="text-sm text-muted-foreground">Loading…</p>
-            ) : confirmedWorkers.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No confirmed workers yet.</p>
-            ) : (
-              <table className="w-full text-xs border-collapse">
-                <thead>
-                  <tr className="bg-slate-100 text-left">
-                    <th className="px-3 py-2 border border-slate-200 font-semibold w-6"></th>
-                    <th className="px-3 py-2 border border-slate-200 font-semibold">Worker key</th>
-                    <th className="px-3 py-2 border border-slate-200 font-semibold">Display name</th>
-                    <th className="px-3 py-2 border border-slate-200 font-semibold">Source</th>
-                    <th className="px-3 py-2 border border-slate-200 font-semibold">First seen</th>
-                    <th className="px-3 py-2 border border-slate-200 font-semibold">Curation note</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {confirmedWorkers.map((w, i) => (
-                    <tr key={w.WORKER_KEY} className={i % 2 === 0 ? "bg-white" : "bg-slate-50"}>
-                      <td className="px-3 py-2 border border-slate-200">
-                        <ConfirmedIcon confirmed={w.CONFIRMED} />
-                      </td>
-                      <td className="px-3 py-2 border border-slate-200 font-mono text-[11px] text-blue-800">
-                        {w.WORKER_KEY}
-                      </td>
-                      <td className="px-3 py-2 border border-slate-200">{w.DISPLAY_NAME}</td>
-                      <td className="px-3 py-2 border border-slate-200">
-                        <SourceBadge source={w.CURATION_SOURCE} />
-                      </td>
-                      <td className="px-3 py-2 border border-slate-200 text-slate-500">
-                        {w.FIRST_SEEN ?? "—"}
-                      </td>
-                      <td className="px-3 py-2 border border-slate-200 text-slate-400 text-[10px] max-w-[220px]">
-                        <div className="truncate" title={w.CURATION_NOTE ?? ""}>
-                          {w.CURATION_NOTE ?? "—"}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </section>
         </div>
       )}
     </div>

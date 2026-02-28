@@ -114,6 +114,7 @@ export interface ProjectCodeMerge {
 export interface CuratedProject {
   PROJECT_CODE: string;
   PROJECT_NAME: string | null;
+  NICKNAME: string | null;
   CONFIRMED: boolean;
   IS_ACTIVE: boolean;
   FIRST_SEEN: string | null;
@@ -126,6 +127,7 @@ export interface CuratedProject {
 export interface CuratedWorker {
   WORKER_KEY: string;
   DISPLAY_NAME: string | null;
+  NICKNAME: string | null;
   CONFIRMED: boolean;
   IS_ACTIVE: boolean;
   FIRST_SEEN: string | null;

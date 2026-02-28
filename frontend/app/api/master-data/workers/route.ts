@@ -6,7 +6,7 @@ export async function GET() {
   try {
     const [workers, suspects] = await Promise.all([
       runQuery<CuratedWorker>(
-        `SELECT WORKER_KEY, DISPLAY_NAME, CONFIRMED, IS_ACTIVE,
+        `SELECT WORKER_KEY, DISPLAY_NAME, NICKNAME, CONFIRMED, IS_ACTIVE,
                 FIRST_SEEN, ADDED_AT, CURATION_SOURCE, CURATION_NOTE
          FROM CURATED_WORKERS
          ORDER BY CONFIRMED ASC, CURATION_SOURCE, WORKER_KEY`
@@ -31,6 +31,7 @@ export async function PATCH(req: NextRequest) {
     const body: {
       worker_key: string;
       display_name?: string;
+      nickname?: string | null;
       confirmed?: boolean;
       is_active?: boolean;
       curation_note?: string;
@@ -39,6 +40,7 @@ export async function PATCH(req: NextRequest) {
     await runExecute(
       `UPDATE CURATED_WORKERS SET
          DISPLAY_NAME    = COALESCE(?, DISPLAY_NAME),
+         NICKNAME        = CASE WHEN ? IS NOT NULL THEN NULLIF(?, '') ELSE NICKNAME END,
          CONFIRMED       = COALESCE(?, CONFIRMED),
          IS_ACTIVE       = COALESCE(?, IS_ACTIVE),
          CURATION_NOTE   = COALESCE(?, CURATION_NOTE),
@@ -46,6 +48,8 @@ export async function PATCH(req: NextRequest) {
        WHERE WORKER_KEY = ?`,
       [
         body.display_name ?? null,
+        body.nickname !== undefined ? "set" : null,
+        body.nickname ?? null,
         body.confirmed ?? null,
         body.is_active ?? null,
         body.curation_note ?? null,

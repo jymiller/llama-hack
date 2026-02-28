@@ -158,14 +158,16 @@ FROM matched;
 -- 10. TRUSTED_LEDGER view - only approved/corrected lines
 -- project_code is resolved through PROJECT_CODE_MERGES (non-destructive merge).
 -- APPLY_PROJECT_MERGES proc performs the hard rewrite on EXTRACTED_LINES.
+-- Nicknames from CURATED_WORKERS / CURATED_PROJECTS replace real names when set
+-- (privacy control — set via Data Governance page).
 CREATE OR REPLACE VIEW TRUSTED_LEDGER AS
 SELECT
     e.line_id,
     e.doc_id,
-    COALESCE(a.corrected_worker, e.worker)                          AS worker,
+    COALESCE(cw.nickname, COALESCE(a.corrected_worker, e.worker))   AS worker,
     COALESCE(a.corrected_date, e.work_date)                         AS work_date,
     COALESCE(m.target_code, e.project_code)                         AS project_code,
-    COALESCE(cp.project_name, COALESCE(a.corrected_project, e.project)) AS project,
+    COALESCE(cp.nickname, cp.project_name, COALESCE(a.corrected_project, e.project)) AS project,
     COALESCE(a.corrected_hours, e.hours)                            AS hours,
     a.decision AS approval_status,
     a.reviewer,
@@ -176,6 +178,7 @@ FROM EXTRACTED_LINES e
 INNER JOIN APPROVED_LINES a ON e.line_id = a.line_id
 LEFT  JOIN PROJECT_CODE_MERGES m  ON m.source_code  = e.project_code
 LEFT  JOIN CURATED_PROJECTS    cp ON cp.project_code = COALESCE(m.target_code, e.project_code)
+LEFT  JOIN CURATED_WORKERS     cw ON cw.worker_key   = LOWER(TRIM(COALESCE(a.corrected_worker, e.worker)))
 WHERE a.decision IN ('APPROVED', 'CORRECTED');
 
 
@@ -766,6 +769,8 @@ $$;
 CREATE TABLE IF NOT EXISTS CURATED_PROJECTS (
     project_code      VARCHAR(20)   NOT NULL PRIMARY KEY,
     project_name      VARCHAR(500),
+    nickname          VARCHAR(200),
+        -- privacy alias shown instead of project_name in all output views
     confirmed         BOOLEAN       DEFAULT FALSE,
     is_active         BOOLEAN       DEFAULT TRUE,
     first_seen        DATE,
@@ -780,6 +785,7 @@ CREATE TABLE IF NOT EXISTS CURATED_PROJECTS (
     matched_from_code VARCHAR(20)
         -- original extracted code when curation_source = 'fuzzy_match'
 );
+ALTER TABLE CURATED_PROJECTS ADD COLUMN IF NOT EXISTS nickname VARCHAR(200);
 
 -- ============================================================
 -- 19. CURATED_WORKERS - Master list of known workers (curated)
@@ -788,6 +794,8 @@ CREATE TABLE IF NOT EXISTS CURATED_PROJECTS (
 CREATE TABLE IF NOT EXISTS CURATED_WORKERS (
     worker_key        VARCHAR(200)  NOT NULL PRIMARY KEY,  -- LOWER(TRIM(display_name))
     display_name      VARCHAR(200),
+    nickname          VARCHAR(200),
+        -- privacy alias shown instead of display_name in all output views
     confirmed         BOOLEAN       DEFAULT FALSE,
     is_active         BOOLEAN       DEFAULT TRUE,
     first_seen        DATE,
@@ -797,6 +805,7 @@ CREATE TABLE IF NOT EXISTS CURATED_WORKERS (
     curation_note     VARCHAR(1000)
         -- e.g. "Normalised from 'Mike Agrawal (V)'; (V) denotes vendor status"
 );
+ALTER TABLE CURATED_WORKERS ADD COLUMN IF NOT EXISTS nickname VARCHAR(200);
 
 -- ============================================================
 -- 20. PROJECT_CODE_SUSPECTS view

@@ -248,6 +248,7 @@ export function useConfirmProject() {
     mutationFn: (payload: {
       project_code: string;
       project_name?: string;
+      nickname?: string | null;
       confirmed?: boolean;
       is_active?: boolean;
       curation_note?: string;
@@ -281,6 +282,7 @@ export function useConfirmWorker() {
     mutationFn: (payload: {
       worker_key: string;
       display_name?: string;
+      nickname?: string | null;
       confirmed?: boolean;
       is_active?: boolean;
       curation_note?: string;

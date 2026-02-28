@@ -14,7 +14,7 @@ import {
 const NAV_ITEMS = [
   { href: "/documents", label: "Documents", icon: FileText },
   { href: "/ground-truth", label: "Ground Truth", icon: CheckSquare },
-  { href: "/master-data", label: "Master Data", icon: BookMarked },
+  { href: "/data-governance", label: "Data Governance", icon: BookMarked },
   { href: "/approvals", label: "Approvals", icon: ThumbsUp },
   { href: "/reconciliation", label: "Reconciliation", icon: DollarSign },
 ];
