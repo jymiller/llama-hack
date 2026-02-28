@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { toast } from "sonner";
-import { RefreshCw, CheckCircle, AlertTriangle, Circle, GitMerge, Trash2 } from "lucide-react";
+import { RefreshCw, CheckCircle, AlertTriangle, Circle, GitMerge, Trash2, Info } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -162,19 +162,28 @@ export default function MasterDataPage() {
   const workerSuspects = workerData?.suspects ?? [];
 
   const unconfirmedProjects = projects.filter((p) => !p.CONFIRMED);
-  const confirmedProjects = projects.filter((p) => p.CONFIRMED);
+  const confirmedProjects = projects.filter((p) => p.CONFIRMED && p.IS_ACTIVE);
   const unconfirmedWorkers = workers.filter((w) => !w.CONFIRMED);
-  const confirmedWorkers = workers.filter((w) => w.CONFIRMED);
+  const confirmedWorkers = workers.filter((w) => w.CONFIRMED && w.IS_ACTIVE);
+
+  // Derive overall data health
+  const pendingSuspects = projectSuspects.filter(
+    (s) => !merges.some((m) => m.SOURCE_CODE === s.EXTRACTED_CODE)
+  );
+  const isClean =
+    unconfirmedProjects.length === 0 &&
+    unconfirmedWorkers.length === 0 &&
+    pendingSuspects.length === 0;
 
   return (
     <div className="flex flex-col">
       <PageHeader
         title="Master Data"
-        description="Curated reference lists for project codes and workers. Confirm auto-extracted entries and review fuzzy-match suspects."
+        description="The canonical list of project codes and workers used across all documents."
         actions={
           <div className="flex gap-2">
-            {tab === "merges" && (
-              <Button onClick={handleApplyMerges} disabled={applyMerges.isPending || merges.length === 0}>
+            {merges.length > 0 && (
+              <Button onClick={handleApplyMerges} disabled={applyMerges.isPending}>
                 <GitMerge className="h-4 w-4 mr-2" />
                 Apply Merges to Data
               </Button>
@@ -187,29 +196,96 @@ export default function MasterDataPage() {
         }
       />
 
+      {/* ── Workflow guide ── */}
+      <div className={`rounded-lg border p-4 mb-6 ${isClean ? "border-green-200 bg-green-50" : "border-blue-200 bg-blue-50"}`}>
+        {isClean ? (
+          <div className="flex items-center gap-2">
+            <CheckCircle className="h-5 w-5 text-green-600 shrink-0" />
+            <div>
+              <p className="text-sm font-semibold text-green-800">Data is clean — no action required.</p>
+              <p className="text-xs text-green-700 mt-0.5">
+                All project codes are confirmed, no OCR suspects detected. Check the <strong>Provenance</strong> tab to review the final canonical list.
+              </p>
+            </div>
+          </div>
+        ) : (
+          <div>
+            <div className="flex items-center gap-2 mb-3">
+              <Info className="h-5 w-5 text-blue-600 shrink-0" />
+              <p className="text-sm font-semibold text-blue-800">How to clean up master data after a new extraction:</p>
+            </div>
+            <ol className="space-y-1.5 text-xs text-blue-900 ml-6 list-decimal">
+              <li>
+                <strong>Sync from Extraction</strong> — pulls any new project codes or worker names from the extracted data into this master list as unconfirmed entries.
+                {unconfirmedProjects.length > 0 || unconfirmedWorkers.length > 0 ? (
+                  <span className="ml-2 text-amber-700 font-semibold">
+                    ↳ {unconfirmedProjects.length} project(s) and {unconfirmedWorkers.length} worker(s) need review on the tabs below.
+                  </span>
+                ) : (
+                  <span className="ml-2 text-green-700">✓ done</span>
+                )}
+              </li>
+              <li>
+                <strong>Review the Merges tab</strong> — the system automatically detects codes that look like OCR misreads (e.g. "Q" mistaken for "G"). Click <em>Create merge</em> on any that look correct, then click <strong>Apply Merges to Data</strong>.
+                {pendingSuspects.length > 0 ? (
+                  <span className="ml-2 text-amber-700 font-semibold">
+                    ↳ {pendingSuspects.length} suggested merge(s) waiting.
+                  </span>
+                ) : (
+                  <span className="ml-2 text-green-700">✓ done</span>
+                )}
+              </li>
+              <li>
+                <strong>Confirm remaining project codes and workers</strong> — any new codes not caught by the merge detector need a human to say "yes, this is a real project". Hit <em>Confirm</em> on the Projects and Workers tabs.
+              </li>
+              <li>
+                <strong>Check the Provenance tab</strong> — if the canonical list looks right, <strong>you&apos;re done</strong>. There is no separate approval step for merges.
+              </li>
+            </ol>
+          </div>
+        )}
+      </div>
+
       {/* Tabs */}
       <div className="flex gap-1 mb-6 border-b border-slate-200">
-        {(["projects", "workers", "merges", "provenance"] as Tab[]).map((t) => (
-          <button
-            key={t}
-            onClick={() => setTab(t)}
-            className={`px-4 py-2 text-sm font-medium capitalize border-b-2 transition-colors ${
-              tab === t
-                ? "border-blue-600 text-blue-700"
-                : "border-transparent text-slate-500 hover:text-slate-800"
-            }`}
-          >
-            {t === "projects" ? `Projects (${projects.length})`
-              : t === "workers" ? `Workers (${workers.length})`
-              : t === "merges" ? `Merges (${merges.length})`
-              : `Provenance (${provenance.length})`}
-          </button>
-        ))}
+        {(["projects", "workers", "merges", "provenance"] as Tab[]).map((t) => {
+          const alertCount =
+            t === "projects" ? unconfirmedProjects.length
+            : t === "workers" ? unconfirmedWorkers.length
+            : t === "merges" ? pendingSuspects.length
+            : 0;
+          return (
+            <button
+              key={t}
+              onClick={() => setTab(t)}
+              className={`px-4 py-2 text-sm font-medium capitalize border-b-2 transition-colors flex items-center gap-1.5 ${
+                tab === t
+                  ? "border-blue-600 text-blue-700"
+                  : "border-transparent text-slate-500 hover:text-slate-800"
+              }`}
+            >
+              {t === "projects" ? `Projects (${confirmedProjects.length} confirmed)`
+                : t === "workers" ? `Workers (${confirmedWorkers.length} confirmed)`
+                : t === "merges" ? `Merges (${merges.length})`
+                : `Provenance`}
+              {alertCount > 0 && (
+                <span className="bg-amber-500 text-white text-[10px] font-bold rounded-full px-1.5 py-0.5 leading-none">
+                  {alertCount}
+                </span>
+              )}
+            </button>
+          );
+        })}
       </div>
 
       {/* ── Projects tab ── */}
       {tab === "projects" && (
         <div className="space-y-6">
+          <p className="text-sm text-slate-500">
+            These are the authoritative project codes. Codes are added automatically when extraction runs.
+            <strong> Confirming</strong> a code means you&apos;ve verified it&apos;s a real project — it will then be used as a reference to detect future OCR misreads.
+            Codes in the <em>pending review</em> queue were either newly seen or flagged as fuzzy matches.
+          </p>
 
           {/* Fuzzy-match suspects banner */}
           {projectSuspects.length > 0 && (
@@ -217,7 +293,7 @@ export default function MasterDataPage() {
               <div className="flex items-center gap-2 mb-3">
                 <AlertTriangle className="h-4 w-4 text-amber-600" />
                 <span className="text-sm font-semibold text-amber-800">
-                  {projectSuspects.length} possible OCR misread(s) detected
+                  {projectSuspects.length} possible OCR misread(s) detected — go to the <button className="underline" onClick={() => setTab("merges")}>Merges tab</button> to fix them.
                 </span>
               </div>
               <table className="w-full text-xs">
@@ -250,9 +326,12 @@ export default function MasterDataPage() {
           {/* Unconfirmed queue */}
           {unconfirmedProjects.length > 0 && (
             <section>
-              <h3 className="text-sm font-semibold text-slate-700 mb-2">
+              <h3 className="text-sm font-semibold text-slate-700 mb-1">
                 Pending review ({unconfirmedProjects.length})
               </h3>
+              <p className="text-xs text-slate-400 mb-2">
+                These codes appeared in extracted data but haven&apos;t been verified yet. Hit <em>Confirm</em> if it&apos;s a real project. If it&apos;s a misread of another code, go to the Merges tab instead.
+              </p>
               <table className="w-full text-xs border-collapse">
                 <thead>
                   <tr className="bg-slate-100 text-left">
@@ -309,9 +388,12 @@ export default function MasterDataPage() {
 
           {/* Confirmed master list */}
           <section>
-            <h3 className="text-sm font-semibold text-slate-700 mb-2">
+            <h3 className="text-sm font-semibold text-slate-700 mb-1">
               Confirmed master list ({confirmedProjects.length})
             </h3>
+            <p className="text-xs text-slate-400 mb-2">
+              These are the canonical project codes. OCR misreads of these codes will be automatically detected and suggested for merging.
+            </p>
             {projLoading ? (
               <p className="text-sm text-muted-foreground">Loading…</p>
             ) : confirmedProjects.length === 0 ? (
@@ -363,16 +445,28 @@ export default function MasterDataPage() {
       {/* ── Merges tab ── */}
       {tab === "merges" && (
         <div className="space-y-6">
+          <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600 space-y-1">
+            <p>
+              <strong>What is a merge?</strong> When OCR misreads a project code (e.g. reads <code className="bg-slate-200 px-1 rounded text-xs">006QI...</code> instead of <code className="bg-slate-200 px-1 rounded text-xs">006GI...</code>), a merge maps the misread code to the correct canonical one.
+            </p>
+            <p>
+              <strong>Creating a merge is the approval.</strong> There is no separate sign-off step — once you click <em>Create merge</em> and then <em>Apply Merges to Data</em>, the extracted data is corrected immediately. The full audit trail is on the <button className="underline text-blue-600" onClick={() => setTab("provenance")}>Provenance tab</button>.
+            </p>
+            <p>
+              <strong>Apply Merges to Data</strong> (top right) rewrites the extracted lines with the correct codes. Run it after adding new merges. It is safe to run more than once.
+            </p>
+          </div>
 
           {/* Suggested merges from suspect view */}
           {projectSuspects.length > 0 && (
             <section>
-              <h3 className="text-sm font-semibold text-slate-700 mb-2 flex items-center gap-2">
+              <h3 className="text-sm font-semibold text-slate-700 mb-1 flex items-center gap-2">
                 <AlertTriangle className="h-4 w-4 text-amber-500" />
-                Suggested merges from OCR suspects ({projectSuspects.filter(
-                  (s) => !merges.some((m) => m.SOURCE_CODE === s.EXTRACTED_CODE)
-                ).length} pending)
+                Suggested merges — possible OCR misreads ({pendingSuspects.length} pending)
               </h3>
+              <p className="text-xs text-slate-400 mb-2">
+                Automatically detected by comparing extracted codes to the confirmed master list using edit-distance. Review each one and click <em>Create merge</em> if it looks correct.
+              </p>
               <table className="w-full text-xs border-collapse">
                 <thead>
                   <tr className="bg-amber-50 text-left">
@@ -402,7 +496,7 @@ export default function MasterDataPage() {
                         <td className="px-3 py-2 border border-slate-200 text-slate-500">{s.DOC_ID}</td>
                         <td className="px-3 py-2 border border-slate-200">
                           {alreadyMerged ? (
-                            <span className="text-[10px] text-green-600">merged</span>
+                            <span className="text-[10px] text-green-600">✓ merged</span>
                           ) : (
                             <Button
                               size="sm"
@@ -425,9 +519,12 @@ export default function MasterDataPage() {
 
           {/* Active merges */}
           <section>
-            <h3 className="text-sm font-semibold text-slate-700 mb-2">
+            <h3 className="text-sm font-semibold text-slate-700 mb-1">
               Active merges ({merges.length})
             </h3>
+            <p className="text-xs text-slate-400 mb-2">
+              All merges on record. Delete a merge only if it was created in error — deleting does not undo the correction already applied to extracted data (re-run extraction to start fresh).
+            </p>
             {merges.length === 0 ? (
               <p className="text-sm text-muted-foreground">No merges defined yet.</p>
             ) : (
@@ -447,11 +544,6 @@ export default function MasterDataPage() {
                     <tr key={m.MERGE_ID} className={i % 2 === 0 ? "bg-white" : "bg-slate-50"}>
                       <td className="px-3 py-2 border border-slate-200 font-mono text-[11px] text-red-700">
                         {m.SOURCE_CODE}
-                        {m.SOURCE_NAME && (
-                          <div className="text-[9px] text-slate-400 font-sans truncate max-w-[160px]" title={m.SOURCE_NAME}>
-                            {m.SOURCE_NAME}
-                          </div>
-                        )}
                       </td>
                       <td className="px-3 py-2 border border-slate-200 font-mono text-[11px] text-green-700">
                         {m.TARGET_CODE}
@@ -484,10 +576,13 @@ export default function MasterDataPage() {
 
           {/* Manual merge form */}
           <section>
-            <h3 className="text-sm font-semibold text-slate-700 mb-3">Manual merge</h3>
+            <h3 className="text-sm font-semibold text-slate-700 mb-1">Manual merge</h3>
+            <p className="text-xs text-slate-400 mb-3">
+              For cases the automatic detector missed — e.g. two confirmed codes that turn out to be the same project.
+            </p>
             <div className="flex gap-3 items-end flex-wrap">
               <div>
-                <p className="text-[11px] text-slate-500 mb-1">Source (misread code)</p>
+                <p className="text-[11px] text-slate-500 mb-1">Source (code to retire)</p>
                 <Select value={mergeSource} onValueChange={setMergeSource}>
                   <SelectTrigger className="w-52 h-8 text-xs">
                     <SelectValue placeholder="Select source…" />
@@ -503,7 +598,7 @@ export default function MasterDataPage() {
               </div>
               <div className="text-slate-400 pb-2 text-sm">→</div>
               <div>
-                <p className="text-[11px] text-slate-500 mb-1">Target (canonical code)</p>
+                <p className="text-[11px] text-slate-500 mb-1">Target (canonical code to keep)</p>
                 <Select value={mergeTarget} onValueChange={setMergeTarget}>
                   <SelectTrigger className="w-52 h-8 text-xs">
                     <SelectValue placeholder="Select target…" />
@@ -523,7 +618,7 @@ export default function MasterDataPage() {
                 <p className="text-[11px] text-slate-500 mb-1">Reason (optional)</p>
                 <Input
                   className="h-8 text-xs"
-                  placeholder="e.g. OCR misread G→Q"
+                  placeholder="e.g. same project, different spelling"
                   value={mergeReason}
                   onChange={(e) => setMergeReason(e.target.value)}
                 />
@@ -537,9 +632,6 @@ export default function MasterDataPage() {
                 Create merge
               </Button>
             </div>
-            <p className="text-[10px] text-slate-400 mt-2">
-              After creating merges, click <strong>Apply Merges to Data</strong> to rewrite EXTRACTED_LINES with the canonical codes.
-            </p>
           </section>
         </div>
       )}
@@ -547,14 +639,17 @@ export default function MasterDataPage() {
       {/* ── Provenance tab ── */}
       {tab === "provenance" && (
         <div className="space-y-4">
-          <p className="text-sm text-slate-500">
-            Full audit trail of every source code merged into its canonical target.
-            Grouped by canonical code — each row is one source→target mapping.
-          </p>
+          <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600 space-y-1">
+            <p>
+              <strong>This is the final canonical picture.</strong> Each section below is one authoritative project code, showing every OCR variant that has been merged into it.
+            </p>
+            <p>
+              If the canonical codes listed look correct and the data health banner above says <em>&ldquo;Data is clean&rdquo;</em>, <strong>you are done — no further action is required.</strong>
+            </p>
+          </div>
           {provenance.length === 0 ? (
             <p className="text-sm text-muted-foreground">No merges recorded yet.</p>
           ) : (() => {
-            // Group by canonical code
             const groups: Record<string, typeof provenance> = {};
             for (const row of provenance) {
               if (!groups[row.CANONICAL_CODE]) groups[row.CANONICAL_CODE] = [];
@@ -563,9 +658,10 @@ export default function MasterDataPage() {
             return Object.entries(groups).map(([canonical, rows]) => (
               <section key={canonical} className="rounded-lg border border-slate-200 overflow-hidden">
                 <div className="bg-slate-100 px-4 py-2 flex items-center gap-3">
+                  <CheckCircle className="h-4 w-4 text-green-600 shrink-0" />
                   <span className="font-mono text-sm font-semibold text-blue-800">{canonical}</span>
                   <span className="text-xs text-slate-500 flex-1 truncate">{rows[0].CANONICAL_NAME}</span>
-                  <span className="text-xs text-slate-400">{rows[0].LINES_AFFECTED} lines</span>
+                  <span className="text-xs text-slate-400">{rows[0].LINES_AFFECTED} extracted lines</span>
                   {!rows[0].CANONICAL_ACTIVE && (
                     <span className="text-[10px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded">inactive</span>
                   )}
@@ -573,8 +669,8 @@ export default function MasterDataPage() {
                 <table className="w-full text-xs border-collapse">
                   <thead>
                     <tr className="bg-white border-b border-slate-200 text-slate-500">
-                      <th className="px-4 py-1.5 text-left font-medium">Source (OCR variant)</th>
-                      <th className="px-4 py-1.5 text-left font-medium">Merge reason</th>
+                      <th className="px-4 py-1.5 text-left font-medium">OCR variant merged in</th>
+                      <th className="px-4 py-1.5 text-left font-medium">Reason</th>
                       <th className="px-4 py-1.5 text-left font-medium">Merged by</th>
                       <th className="px-4 py-1.5 text-left font-medium">Merged at</th>
                     </tr>
@@ -603,6 +699,9 @@ export default function MasterDataPage() {
       {/* ── Workers tab ── */}
       {tab === "workers" && (
         <div className="space-y-6">
+          <p className="text-sm text-slate-500">
+            The canonical list of workers. Confirming a worker means you&apos;ve verified the name is correctly identified — confirmed workers are used to detect future name variations.
+          </p>
 
           {/* Fuzzy-match suspects banner */}
           {workerSuspects.length > 0 && (
@@ -639,9 +738,12 @@ export default function MasterDataPage() {
           {/* Unconfirmed queue */}
           {unconfirmedWorkers.length > 0 && (
             <section>
-              <h3 className="text-sm font-semibold text-slate-700 mb-2">
+              <h3 className="text-sm font-semibold text-slate-700 mb-1">
                 Pending review ({unconfirmedWorkers.length})
               </h3>
+              <p className="text-xs text-slate-400 mb-2">
+                These worker names appeared in extracted data but haven&apos;t been verified yet.
+              </p>
               <table className="w-full text-xs border-collapse">
                 <thead>
                   <tr className="bg-slate-100 text-left">
@@ -691,7 +793,7 @@ export default function MasterDataPage() {
 
           {/* Confirmed master list */}
           <section>
-            <h3 className="text-sm font-semibold text-slate-700 mb-2">
+            <h3 className="text-sm font-semibold text-slate-700 mb-1">
               Confirmed master list ({confirmedWorkers.length})
             </h3>
             {wrkLoading ? (
