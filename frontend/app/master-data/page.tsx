@@ -527,51 +527,66 @@ export default function MasterDataPage() {
             </p>
             {merges.length === 0 ? (
               <p className="text-sm text-muted-foreground">No merges defined yet.</p>
-            ) : (
-              <table className="w-full text-xs border-collapse">
-                <thead>
-                  <tr className="bg-slate-100 text-left">
-                    <th className="px-3 py-2 border border-slate-200 font-semibold">Source (misread)</th>
-                    <th className="px-3 py-2 border border-slate-200 font-semibold">→ Target (canonical)</th>
-                    <th className="px-3 py-2 border border-slate-200 font-semibold">Target name</th>
-                    <th className="px-3 py-2 border border-slate-200 font-semibold">Reason</th>
-                    <th className="px-3 py-2 border border-slate-200 font-semibold">Merged at</th>
-                    <th className="px-3 py-2 border border-slate-200 font-semibold"></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {merges.map((m, i) => (
-                    <tr key={m.MERGE_ID} className={i % 2 === 0 ? "bg-white" : "bg-slate-50"}>
-                      <td className="px-3 py-2 border border-slate-200 font-mono text-[11px] text-red-700">
-                        {m.SOURCE_CODE}
-                      </td>
-                      <td className="px-3 py-2 border border-slate-200 font-mono text-[11px] text-green-700">
-                        {m.TARGET_CODE}
-                      </td>
-                      <td className="px-3 py-2 border border-slate-200 max-w-[200px]">
-                        <div className="truncate text-[10px]" title={m.TARGET_NAME ?? ""}>{m.TARGET_NAME}</div>
-                      </td>
-                      <td className="px-3 py-2 border border-slate-200 text-slate-500 text-[10px] max-w-[200px]">
-                        <div className="truncate" title={m.MERGE_REASON ?? ""}>{m.MERGE_REASON ?? "—"}</div>
-                      </td>
-                      <td className="px-3 py-2 border border-slate-200 text-slate-400 text-[10px] whitespace-nowrap">
-                        {m.MERGED_AT ? new Date(m.MERGED_AT).toLocaleDateString() : "—"}
-                      </td>
-                      <td className="px-3 py-2 border border-slate-200">
-                        <button
-                          onClick={() => handleDeleteMerge(m.MERGE_ID, m.SOURCE_CODE)}
-                          disabled={deleteMerge.isPending}
-                          className="text-slate-400 hover:text-red-600 transition-colors"
-                          title="Remove merge"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
-                      </td>
-                    </tr>
+            ) : (() => {
+              // Group by target (canonical) code
+              const groups: Record<string, typeof merges> = {};
+              for (const m of merges) {
+                if (!groups[m.TARGET_CODE]) groups[m.TARGET_CODE] = [];
+                groups[m.TARGET_CODE].push(m);
+              }
+              return (
+                <div className="space-y-3">
+                  {Object.entries(groups).map(([target, group]) => (
+                    <div key={target} className="rounded-lg border border-slate-200 overflow-hidden">
+                      {/* Canonical header */}
+                      <div className="bg-slate-100 px-4 py-2 flex items-center gap-3">
+                        <span className="font-mono text-sm font-semibold text-green-800">{target}</span>
+                        <span className="text-xs text-slate-500 flex-1 truncate" title={group[0].TARGET_NAME ?? ""}>
+                          {group[0].TARGET_NAME}
+                        </span>
+                        <span className="text-xs text-slate-400">{group.length} source{group.length !== 1 ? "s" : ""} merged in</span>
+                      </div>
+                      {/* Source rows */}
+                      <table className="w-full text-xs border-collapse">
+                        <thead>
+                          <tr className="bg-white border-b border-slate-200 text-slate-500">
+                            <th className="px-4 py-1.5 text-left font-medium pl-8">OCR variant (source)</th>
+                            <th className="px-4 py-1.5 text-left font-medium">Reason</th>
+                            <th className="px-4 py-1.5 text-left font-medium">Merged at</th>
+                            <th className="px-4 py-1.5 text-left font-medium"></th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {group.map((m, i) => (
+                            <tr key={m.MERGE_ID} className={i % 2 === 0 ? "bg-white" : "bg-slate-50"}>
+                              <td className="px-4 py-2 pl-8 font-mono text-[11px] text-red-700">
+                                {m.SOURCE_CODE}
+                              </td>
+                              <td className="px-4 py-2 text-slate-500 text-[10px] max-w-[300px]">
+                                <div className="truncate" title={m.MERGE_REASON ?? ""}>{m.MERGE_REASON ?? "—"}</div>
+                              </td>
+                              <td className="px-4 py-2 text-slate-400 text-[10px] whitespace-nowrap">
+                                {m.MERGED_AT ? new Date(m.MERGED_AT).toLocaleDateString() : "—"}
+                              </td>
+                              <td className="px-4 py-2">
+                                <button
+                                  onClick={() => handleDeleteMerge(m.MERGE_ID, m.SOURCE_CODE)}
+                                  disabled={deleteMerge.isPending}
+                                  className="text-slate-400 hover:text-red-600 transition-colors"
+                                  title="Remove merge"
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
                   ))}
-                </tbody>
-              </table>
-            )}
+                </div>
+              );
+            })()}
           </section>
 
           {/* Manual merge form */}
