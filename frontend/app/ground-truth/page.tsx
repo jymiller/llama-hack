@@ -20,6 +20,7 @@ import {
   useGroundTruthCounts,
   useSaveGroundTruth,
   useMasterProjects,
+  useProjectMerges,
 } from "@/hooks/queries";
 import { RawDocument, ExtractedLine, GroundTruthLine } from "@/lib/types";
 
@@ -276,6 +277,7 @@ export default function GroundTruthPage() {
   const { data: allLines = EMPTY_LINES } = useExtractedLines();
   const { data: masterData } = useMasterProjects();
   const { data: gtCounts = [] } = useGroundTruthCounts();
+  const { data: merges = [] } = useProjectMerges();
 
   const [selectedDocId, setSelectedDocId] = useState<string | null>(null);
   const { data: existing = EMPTY_GT } = useGroundTruth(selectedDocId);
@@ -464,13 +466,22 @@ export default function GroundTruthPage() {
     );
   }
 
+  // Merge resolution: source_code → target_code
+  const mergeMap = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const m of merges) map[m.SOURCE_CODE] = m.TARGET_CODE;
+    return map;
+  }, [merges]);
+
   // ── Extracted rows grouped by project (for comparison) ──
 
   const extractedRowsByCode = useMemo(() => {
     const map = new Map<string, { projectCode: string; projectName: string; hours: Record<string, number> }>();
     for (const line of docLines) {
-      const code = line.PROJECT_CODE ?? line.PROJECT ?? "";
-      if (!code) continue;
+      const rawCode = line.PROJECT_CODE ?? line.PROJECT ?? "";
+      if (!rawCode) continue;
+      // Resolve through merge map so merged codes compare against GT correctly
+      const code = mergeMap[rawCode] ?? rawCode;
       if (!map.has(code)) {
         const canonical = canonicalProjects.find((p) => p.PROJECT_CODE === code);
         map.set(code, {
@@ -484,7 +495,7 @@ export default function GroundTruthPage() {
       }
     }
     return map;
-  }, [docLines, canonicalProjects]);
+  }, [docLines, canonicalProjects, mergeMap]);
 
   // GT lookup: projectCode → date → hours (for comparison against extraction)
   const gtLookup = useMemo(() => {
@@ -562,14 +573,6 @@ export default function GroundTruthPage() {
       <PageHeader
         title="Ground Truth"
         description="Select a timesheet to enter the analyst-verified hours against canonical projects."
-        actions={
-          selectedDocId ? (
-            <Button onClick={handleSave} disabled={save.isPending}>
-              <Save className="h-4 w-4 mr-2" />
-              Save Ground Truth
-            </Button>
-          ) : undefined
-        }
       />
 
       {/* ── Thumbnail grid ── */}
