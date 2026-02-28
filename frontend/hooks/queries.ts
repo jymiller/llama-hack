@@ -434,3 +434,10 @@ export function useRunReconciliation() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["reconciliation"] }),
   });
 }
+
+export function useMonthlyWorkerSummary() {
+  return useQuery<import("@/lib/types").MonthlyWorkerRow[]>({
+    queryKey: ["monthly-worker-summary"],
+    queryFn: () => fetchJson("/api/reconciliation/monthly-worker"),
+  });
+}

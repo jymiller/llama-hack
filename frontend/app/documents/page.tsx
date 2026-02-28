@@ -26,6 +26,11 @@ import {
 import { RawDocument, ExtractedLine } from "@/lib/types";
 
 const DOC_TYPES = ["TIMESHEET", "SUBSUB_INVOICE", "MY_INVOICE"] as const;
+const DOC_TYPE_LABELS: Record<string, string> = {
+  TIMESHEET: "Timesheet",
+  SUBSUB_INVOICE: "Subcontract Invoice",
+  MY_INVOICE: "My Invoice",
+};
 
 function DocCard({
   doc,
@@ -45,12 +50,7 @@ function DocCard({
   extracting: boolean;
 }) {
   const extracted = lines.length > 0;
-  const avgConf =
-    extracted
-      ? lines.reduce((s, l) => s + (l.EXTRACTION_CONFIDENCE ?? 0), 0) / lines.length
-      : null;
-  const confColor =
-    avgConf == null ? "" : avgConf >= 0.8 ? "text-green-600" : avgConf >= 0.6 ? "text-yellow-600" : "text-red-600";
+  const totalHours = extracted ? lines.reduce((s, l) => s + (l.HOURS ?? 0), 0) : null;
 
   return (
     <div
@@ -76,7 +76,7 @@ function DocCard({
           extracted ? "bg-green-100 text-green-700" : "bg-slate-200 text-slate-500"
         }`}>
           {extracted ? <CheckCircle className="h-3 w-3" /> : <Circle className="h-3 w-3" />}
-          {extracted ? `${lines.length} lines` : "Not extracted"}
+          {extracted ? `${totalHours!.toFixed(1)}h` : "Not extracted"}
         </div>
       </div>
 
@@ -88,24 +88,20 @@ function DocCard({
             <p className="text-[10px] text-slate-400 truncate">
               {doc.INGESTED_TS ? new Date(doc.INGESTED_TS).toLocaleDateString() : ""}
               {" · "}
-              <span className="capitalize">{doc.DOC_TYPE.replace(/_/g, " ").toLowerCase()}</span>
+              <span>{DOC_TYPE_LABELS[doc.DOC_TYPE] ?? doc.DOC_TYPE.replace(/_/g, " ")}</span>
             </p>
           </div>
           <div className="flex items-center gap-1 shrink-0">
-            {avgConf != null && (
-              <span className={`text-xs font-mono ${confColor}`}>
-                {(avgConf * 100).toFixed(0)}%
-              </span>
-            )}
             <button
               onClick={onExtract}
               disabled={extracting}
-              className="p-1 rounded text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+              className="flex items-center gap-1 px-1.5 py-0.5 rounded text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors text-[10px] font-medium"
               title={extracted ? "Re-extract" : "Extract"}
             >
               {extracting
-                ? <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                : <Play className="h-3.5 w-3.5" />}
+                ? <RefreshCw className="h-3 w-3 animate-spin" />
+                : <Play className="h-3 w-3" />}
+              Extract
             </button>
             <button
               onClick={onDelete}
@@ -236,7 +232,7 @@ export default function DocumentsPage() {
             </SelectTrigger>
             <SelectContent>
               {DOC_TYPES.map((t) => (
-                <SelectItem key={t} value={t}>{t.replace(/_/g, " ")}</SelectItem>
+                <SelectItem key={t} value={t}>{DOC_TYPE_LABELS[t] ?? t.replace(/_/g, " ")}</SelectItem>
               ))}
             </SelectContent>
           </Select>

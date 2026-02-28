@@ -43,6 +43,14 @@ export interface LedgerApproval {
   DECIDED_AT: string;
 }
 
+export interface MonthlyWorkerRow {
+  WORKER: string;
+  PERIOD_MONTH: string;
+  EXT_TIMESHEET_HOURS: number;
+  EXT_INVOICE_HOURS: number;
+  GT_HOURS: number | null;
+}
+
 export interface ReconSummary {
   RECON_ID: string;
   PERIOD_MONTH: string;
