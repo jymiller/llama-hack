@@ -54,18 +54,6 @@ export function useDeleteDocument() {
   });
 }
 
-export function useRunOcr() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (docId: string) =>
-      fetch(`/api/documents/${docId}/ocr`, { method: "POST" }).then((r) => {
-        if (!r.ok) return r.json().then((e) => Promise.reject(e.error));
-        return r.json();
-      }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["documents"] }),
-  });
-}
-
 // ── Extraction ───────────────────────────────────────────────────────────────
 
 export function useExtractedLines() {

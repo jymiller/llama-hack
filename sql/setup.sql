@@ -178,71 +178,6 @@ LEFT  JOIN PROJECT_CODE_MERGES m  ON m.source_code  = e.project_code
 LEFT  JOIN CURATED_PROJECTS    cp ON cp.project_code = COALESCE(m.target_code, e.project_code)
 WHERE a.decision IN ('APPROVED', 'CORRECTED');
 
--- 11. Create stored procedure to run OCR on staged documents
-CREATE OR REPLACE PROCEDURE PROCESS_DOCUMENT_OCR(
-    P_DOC_ID VARCHAR,
-    P_DOC_TYPE VARCHAR,
-    P_FILE_PATH VARCHAR
-)
-RETURNS VARCHAR
-LANGUAGE SQL
-AS
-$$
-DECLARE
-    ocr_result TEXT;
-BEGIN
-    -- Run Cortex PARSE_DOCUMENT for OCR
-    SELECT SNOWFLAKE.CORTEX.PARSE_DOCUMENT(
-        BUILD_SCOPED_FILE_URL(:P_FILE_PATH),
-        {'mode': 'OCR'}
-    ):content::TEXT INTO ocr_result;
-    
-    -- Update with OCR results
-    UPDATE RAW_DOCUMENTS 
-    SET ocr_text = :ocr_result,
-        ocr_status = 'COMPLETED'
-    WHERE doc_id = :P_DOC_ID;
-    
-    RETURN 'SUCCESS: OCR completed for ' || :P_DOC_ID;
-EXCEPTION
-    WHEN OTHER THEN
-        UPDATE RAW_DOCUMENTS 
-        SET ocr_status = 'FAILED'
-        WHERE doc_id = :P_DOC_ID;
-        RETURN 'ERROR: ' || SQLERRM;
-END;
-$$;
-
--- 8. Create procedure to batch process all pending documents in stage
-CREATE OR REPLACE PROCEDURE PROCESS_ALL_STAGED_DOCUMENTS()
-RETURNS TABLE (doc_id VARCHAR, status VARCHAR)
-LANGUAGE SQL
-AS
-$$
-DECLARE
-    result_cursor CURSOR FOR
-        SELECT 
-            REGEXP_REPLACE(RELATIVE_PATH, '\\.[^.]+$', '') AS doc_id,
-            CASE 
-                WHEN RELATIVE_PATH ILIKE '%timesheet%' THEN 'TIMESHEET'
-                WHEN RELATIVE_PATH ILIKE '%subsub%' THEN 'SUBSUB_INVOICE'
-                WHEN RELATIVE_PATH ILIKE '%invoice%' THEN 'MY_INVOICE'
-                ELSE 'TIMESHEET'
-            END AS doc_type,
-            '@DOCUMENTS_STAGE/' || RELATIVE_PATH AS file_path
-        FROM DIRECTORY(@DOCUMENTS_STAGE)
-        WHERE RELATIVE_PATH NOT IN (SELECT REGEXP_REPLACE(file_path, '@DOCUMENTS_STAGE/', '') FROM RAW_DOCUMENTS);
-BEGIN
-    CREATE OR REPLACE TEMPORARY TABLE process_results (doc_id VARCHAR, status VARCHAR);
-    
-    FOR rec IN result_cursor DO
-        LET result VARCHAR := (CALL PROCESS_DOCUMENT_OCR(rec.doc_id, rec.doc_type, rec.file_path));
-        INSERT INTO process_results VALUES (rec.doc_id, result);
-    END FOR;
-    
-    RETURN TABLE(SELECT * FROM process_results);
-END;
-$$;
 
 -- 13. View for easy monitoring of pipeline status
 CREATE OR REPLACE VIEW PIPELINE_STATUS AS
@@ -394,12 +329,23 @@ Return ONLY valid JSON (no markdown, no extra text):
 - Verify each row total matches the TOTAL column in Time Details before finalizing.';
     END IF;
 
-    -- Call Claude 3.5 Sonnet multimodal with the image file
-    SELECT SNOWFLAKE.CORTEX.COMPLETE(
-        'claude-3-5-sonnet',
-        :extraction_prompt,
-        TO_FILE(:stage_ref, :filename)
-    ) INTO llm_response;
+    -- Call Claude 3.5 Sonnet: use PARSE_DOCUMENT→text for invoice PDFs, multimodal for images
+    IF (:doc_type_val = 'SUBSUB_INVOICE' AND :filename ILIKE '%.pdf') THEN
+        DECLARE ocr_text TEXT;
+        BEGIN
+            SELECT SNOWFLAKE.CORTEX.PARSE_DOCUMENT(:stage_ref, :filename, {'mode': 'LAYOUT'})::VARCHAR INTO ocr_text;
+            SELECT SNOWFLAKE.CORTEX.COMPLETE(
+                'claude-3-5-sonnet',
+                :extraction_prompt || CHR(10) || CHR(10) || 'Document text:' || CHR(10) || :ocr_text
+            ) INTO llm_response;
+        END;
+    ELSE
+        SELECT SNOWFLAKE.CORTEX.COMPLETE(
+            'claude-3-5-sonnet',
+            :extraction_prompt,
+            TO_FILE(:stage_ref, :filename)
+        ) INTO llm_response;
+    END IF;
 
     -- Strip markdown code fences if present
     llm_response := REGEXP_REPLACE(:llm_response, '^```(json)?\\s*', '');
