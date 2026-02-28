@@ -324,6 +324,13 @@ export function useDeleteMerge() {
   });
 }
 
+export function useMergeProvenance() {
+  return useQuery<import("@/lib/types").MergeProvenanceRow[]>({
+    queryKey: ["merge-provenance"],
+    queryFn: () => fetchJson("/api/master-data/provenance"),
+  });
+}
+
 export function useApplyMerges() {
   const qc = useQueryClient();
   return useMutation({

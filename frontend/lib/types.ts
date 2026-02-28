@@ -145,6 +145,18 @@ export interface ProjectCodeSuspect {
   EDIT_DIST: number;
 }
 
+export interface MergeProvenanceRow {
+  CANONICAL_CODE: string;
+  CANONICAL_NAME: string | null;
+  CANONICAL_ACTIVE: boolean;
+  SOURCE_CODE: string;
+  SOURCE_NAME: string | null;
+  MERGE_REASON: string | null;
+  MERGED_BY: string | null;
+  MERGED_AT: string;
+  LINES_AFFECTED: number;
+}
+
 export interface WorkerNameSuspect {
   DOC_ID: string;
   LINE_ID: string;

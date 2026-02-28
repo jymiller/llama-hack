@@ -24,10 +24,11 @@ import {
   useCreateMerge,
   useDeleteMerge,
   useApplyMerges,
+  useMergeProvenance,
 } from "@/hooks/queries";
 import { CuratedProject, CuratedWorker, ProjectCodeSuspect } from "@/lib/types";
 
-type Tab = "projects" | "workers" | "merges";
+type Tab = "projects" | "workers" | "merges" | "provenance";
 
 function SourceBadge({ source }: { source: string }) {
   if (source === "fuzzy_match")
@@ -66,6 +67,7 @@ export default function MasterDataPage() {
   const { data: projectData, isLoading: projLoading } = useMasterProjects();
   const { data: workerData, isLoading: wrkLoading } = useMasterWorkers();
   const { data: merges = [] } = useProjectMerges();
+  const { data: provenance = [] } = useMergeProvenance();
   const confirmProject = useConfirmProject();
   const confirmWorker = useConfirmWorker();
   const sync = useSyncMaster();
@@ -187,7 +189,7 @@ export default function MasterDataPage() {
 
       {/* Tabs */}
       <div className="flex gap-1 mb-6 border-b border-slate-200">
-        {(["projects", "workers", "merges"] as Tab[]).map((t) => (
+        {(["projects", "workers", "merges", "provenance"] as Tab[]).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -199,7 +201,8 @@ export default function MasterDataPage() {
           >
             {t === "projects" ? `Projects (${projects.length})`
               : t === "workers" ? `Workers (${workers.length})`
-              : `Merges (${merges.length})`}
+              : t === "merges" ? `Merges (${merges.length})`
+              : `Provenance (${provenance.length})`}
           </button>
         ))}
       </div>
@@ -538,6 +541,62 @@ export default function MasterDataPage() {
               After creating merges, click <strong>Apply Merges to Data</strong> to rewrite EXTRACTED_LINES with the canonical codes.
             </p>
           </section>
+        </div>
+      )}
+
+      {/* ── Provenance tab ── */}
+      {tab === "provenance" && (
+        <div className="space-y-4">
+          <p className="text-sm text-slate-500">
+            Full audit trail of every source code merged into its canonical target.
+            Grouped by canonical code — each row is one source→target mapping.
+          </p>
+          {provenance.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No merges recorded yet.</p>
+          ) : (() => {
+            // Group by canonical code
+            const groups: Record<string, typeof provenance> = {};
+            for (const row of provenance) {
+              if (!groups[row.CANONICAL_CODE]) groups[row.CANONICAL_CODE] = [];
+              groups[row.CANONICAL_CODE].push(row);
+            }
+            return Object.entries(groups).map(([canonical, rows]) => (
+              <section key={canonical} className="rounded-lg border border-slate-200 overflow-hidden">
+                <div className="bg-slate-100 px-4 py-2 flex items-center gap-3">
+                  <span className="font-mono text-sm font-semibold text-blue-800">{canonical}</span>
+                  <span className="text-xs text-slate-500 flex-1 truncate">{rows[0].CANONICAL_NAME}</span>
+                  <span className="text-xs text-slate-400">{rows[0].LINES_AFFECTED} lines</span>
+                  {!rows[0].CANONICAL_ACTIVE && (
+                    <span className="text-[10px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded">inactive</span>
+                  )}
+                </div>
+                <table className="w-full text-xs border-collapse">
+                  <thead>
+                    <tr className="bg-white border-b border-slate-200 text-slate-500">
+                      <th className="px-4 py-1.5 text-left font-medium">Source (OCR variant)</th>
+                      <th className="px-4 py-1.5 text-left font-medium">Merge reason</th>
+                      <th className="px-4 py-1.5 text-left font-medium">Merged by</th>
+                      <th className="px-4 py-1.5 text-left font-medium">Merged at</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((row, i) => (
+                      <tr key={row.SOURCE_CODE} className={i % 2 === 0 ? "bg-white" : "bg-slate-50"}>
+                        <td className="px-4 py-2 font-mono text-[11px] text-red-700">{row.SOURCE_CODE}</td>
+                        <td className="px-4 py-2 text-slate-600 max-w-[320px]">
+                          <div className="truncate" title={row.MERGE_REASON ?? ""}>{row.MERGE_REASON ?? "—"}</div>
+                        </td>
+                        <td className="px-4 py-2 text-slate-400">{row.MERGED_BY ?? "—"}</td>
+                        <td className="px-4 py-2 text-slate-400 whitespace-nowrap">
+                          {row.MERGED_AT ? new Date(row.MERGED_AT).toLocaleString() : "—"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </section>
+            ));
+          })()}
         </div>
       )}
 

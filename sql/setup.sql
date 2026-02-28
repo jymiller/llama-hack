@@ -925,7 +925,32 @@ CREATE TABLE IF NOT EXISTS PROJECT_CODE_MERGES (
 );
 
 -- ============================================================
--- 24. APPLY_PROJECT_MERGES - Hard-write all active merge mappings to EXTRACTED_LINES.
+-- 24. PROJECT_MERGE_PROVENANCE - Flat audit view: every source code → its canonical target,
+-- with project names, merge reason, and current line count.
+-- ============================================================
+CREATE OR REPLACE VIEW PROJECT_MERGE_PROVENANCE AS
+SELECT
+    tgt.PROJECT_CODE                            AS CANONICAL_CODE,
+    tgt.PROJECT_NAME                            AS CANONICAL_NAME,
+    tgt.IS_ACTIVE                               AS CANONICAL_ACTIVE,
+    m.SOURCE_CODE                               AS SOURCE_CODE,
+    src.PROJECT_NAME                            AS SOURCE_NAME,
+    m.MERGE_REASON                              AS MERGE_REASON,
+    m.MERGED_BY                                 AS MERGED_BY,
+    m.MERGED_AT                                 AS MERGED_AT,
+    COUNT(el.LINE_ID)                           AS LINES_AFFECTED
+FROM PROJECT_CODE_MERGES m
+JOIN CURATED_PROJECTS tgt ON tgt.PROJECT_CODE = m.TARGET_CODE
+LEFT JOIN CURATED_PROJECTS src ON src.PROJECT_CODE = m.SOURCE_CODE
+LEFT JOIN EXTRACTED_LINES el ON el.project_code = tgt.PROJECT_CODE
+GROUP BY
+    tgt.PROJECT_CODE, tgt.PROJECT_NAME, tgt.IS_ACTIVE,
+    m.SOURCE_CODE, src.PROJECT_NAME,
+    m.MERGE_REASON, m.MERGED_BY, m.MERGED_AT
+ORDER BY tgt.PROJECT_CODE, m.MERGED_AT;
+
+-- ============================================================
+-- 25. APPLY_PROJECT_MERGES - Hard-write all active merge mappings to EXTRACTED_LINES.
 -- Call this after creating or updating merges to propagate corrections to the raw data.
 -- Safe to call repeatedly (idempotent: already-merged rows are no-ops).
 -- ============================================================
