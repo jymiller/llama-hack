@@ -210,10 +210,10 @@ function DocCard({
     <div
       onClick={onClick}
       className={`rounded-lg border cursor-pointer transition-all overflow-hidden ${
-        unsaved
+        selected || unsaved
           ? "border-yellow-400 ring-2 ring-yellow-200"
-          : selected
-          ? "border-blue-500 ring-2 ring-blue-200"
+          : hasGT
+          ? "border-green-400 ring-1 ring-green-100"
           : "border-slate-200 hover:border-slate-300 hover:shadow-sm"
       }`}
     >
