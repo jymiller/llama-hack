@@ -71,6 +71,7 @@ CREATE TABLE IF NOT EXISTS CURATED_GROUND_TRUTH (
     worker VARCHAR(200),
     work_date DATE,
     project VARCHAR(200),
+    project_code VARCHAR(20),
     hours DECIMAL(5,2),
     notes TEXT,
     entered_by VARCHAR(200) DEFAULT CURRENT_USER(),

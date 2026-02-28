@@ -10,7 +10,7 @@ export async function GET(
     const { id } = await params;
     const rows = await runQuery<GroundTruthLine>(
       `SELECT GT_ID, DOC_ID, WORKER, WORK_DATE, PROJECT,
-              NULL AS PROJECT_CODE, HOURS, ENTERED_BY, ENTERED_TS AS ENTERED_AT
+              PROJECT_CODE, HOURS, ENTERED_BY, ENTERED_TS AS ENTERED_AT
        FROM CURATED_GROUND_TRUTH
        WHERE DOC_ID = ?
        ORDER BY WORK_DATE`,
@@ -39,13 +39,14 @@ export async function PUT(
 
     for (const line of lines) {
       await runExecute(
-        `INSERT INTO CURATED_GROUND_TRUTH (DOC_ID, WORKER, WORK_DATE, PROJECT, HOURS, ENTERED_BY)
-         VALUES (?, ?, ?, ?, ?, 'analyst')`,
+        `INSERT INTO CURATED_GROUND_TRUTH (DOC_ID, WORKER, WORK_DATE, PROJECT, PROJECT_CODE, HOURS, ENTERED_BY)
+         VALUES (?, ?, ?, ?, ?, ?, 'analyst')`,
         [
           id,
           line.WORKER,
           line.WORK_DATE,
           line.PROJECT ?? null,
+          line.PROJECT_CODE ?? null,
           line.HOURS,
         ]
       );
