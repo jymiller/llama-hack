@@ -23,11 +23,13 @@ import {
   useDecideLine,
   useApproveAll,
   useClearApprovals,
+  useNicknameMaps,
 } from "@/hooks/queries";
 import { ApprovalLineRow } from "@/lib/types";
 
 export default function ApprovalsPage() {
   const { data: docs = [] } = useDocuments();
+  const { nickP, nickW } = useNicknameMaps();
   const [selectedDoc, setSelectedDoc] = useState<string>("");
   const docId = selectedDoc || null;
 
@@ -75,9 +77,17 @@ export default function ApprovalsPage() {
 
   const columns: ColumnDef<ApprovalLineRow>[] = [
     { accessorKey: "LINE_ID", header: "ID", size: 60 },
-    { accessorKey: "WORKER", header: "Worker" },
+    {
+      accessorKey: "WORKER",
+      header: "Worker",
+      cell: ({ getValue }) => nickW(getValue<string | null>()),
+    },
     { accessorKey: "WORK_DATE", header: "Date" },
-    { accessorKey: "PROJECT", header: "Project" },
+    {
+      accessorKey: "PROJECT_CODE",
+      header: "Project",
+      cell: ({ row }) => nickP(row.original.PROJECT_CODE) || row.original.PROJECT || "—",
+    },
     {
       accessorKey: "HOURS",
       header: "Extracted h",

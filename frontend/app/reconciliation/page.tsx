@@ -11,7 +11,7 @@ import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { useReconciliation, useRunReconciliation, useMonthlyWorkerSummary } from "@/hooks/queries";
+import { useReconciliation, useRunReconciliation, useMonthlyWorkerSummary, useNicknameMaps } from "@/hooks/queries";
 import { ReconSummary, MonthlyWorkerRow } from "@/lib/types";
 import { formatCurrency, formatPct } from "@/lib/utils";
 
@@ -19,6 +19,7 @@ export default function ReconciliationPage() {
   const { data, isLoading } = useReconciliation();
   const runRecon = useRunReconciliation();
   const { data: monthly = [] } = useMonthlyWorkerSummary();
+  const { nickW } = useNicknameMaps();
   const [rate, setRate] = useState("150");
 
   const summary = data?.summary ?? [];
@@ -181,7 +182,7 @@ export default function ReconciliationPage() {
                   const invMatched = invDelta != null && Math.abs(invDelta) < 0.01;
                   return (
                     <tr key={`${row.WORKER}-${row.PERIOD_MONTH}`} className={i % 2 === 0 ? "bg-white" : "bg-slate-50"}>
-                      <td className="px-3 py-2 border-b border-slate-100 font-medium">{row.WORKER}</td>
+                      <td className="px-3 py-2 border-b border-slate-100 font-medium">{nickW(row.WORKER)}</td>
                       <td className="px-3 py-2 border-b border-slate-100 font-mono text-xs">{row.PERIOD_MONTH}</td>
                       <td className="px-3 py-2 border-b border-slate-100 font-mono text-right">{row.EXT_TIMESHEET_HOURS.toFixed(1)}</td>
                       <td className="px-3 py-2 border-b border-slate-100 font-mono text-right">

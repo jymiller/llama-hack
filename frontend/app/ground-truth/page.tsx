@@ -21,6 +21,7 @@ import {
   useSaveGroundTruth,
   useMasterProjects,
   useProjectMerges,
+  useNicknameMaps,
 } from "@/hooks/queries";
 import { RawDocument, ExtractedLine, GroundTruthLine } from "@/lib/types";
 
@@ -301,6 +302,7 @@ export default function GroundTruthPage() {
   const { data: masterData } = useMasterProjects();
   const { data: gtCounts = [] } = useGroundTruthCounts();
   const { data: merges = [] } = useProjectMerges();
+  const { nickP, nickW } = useNicknameMaps();
 
   const [selectedDocId, setSelectedDocId] = useState<string | null>(null);
   const { data: existing = EMPTY_GT } = useGroundTruth(selectedDocId);
@@ -647,7 +649,7 @@ export default function GroundTruthPage() {
               <span className="font-semibold text-blue-800">{selectedDocId}</span>
               {docWorker && (
                 <span className="text-xs bg-white border border-slate-200 px-2 py-0.5 rounded-full text-slate-600">
-                  {docWorker}
+                  {nickW(docWorker)}
                 </span>
               )}
               {existing.length > 0 && (
@@ -749,7 +751,7 @@ export default function GroundTruthPage() {
                                         )}
                                       </div>
                                       <div className="text-[11px] text-slate-600 leading-tight">
-                                        {row.projectName || "—"}
+                                        {nickP(row.projectCode) || "—"}
                                       </div>
                                     </div>
                                   ) : undefined}
@@ -766,7 +768,7 @@ export default function GroundTruthPage() {
                                         {p.PROJECT_CODE}
                                       </div>
                                       <div className="text-xs text-slate-600">
-                                        {p.PROJECT_NAME ?? "—"}
+                                        {nickP(p.PROJECT_CODE) || "—"}
                                       </div>
                                     </div>
                                   </SelectItem>
@@ -919,7 +921,7 @@ export default function GroundTruthPage() {
                             <td className={`border border-slate-200 px-3 py-2 ${isMissing || isExtra ? "border-l-2 border-l-red-400" : ""}`}>
                               <div className="font-mono text-[10px] text-blue-700">{code}</div>
                               <div className="text-[11px] text-slate-500">
-                                {extRow?.projectName ?? rows.find((r) => r.projectCode === code)?.projectName ?? "—"}
+                                {nickP(code) || extRow?.projectName || rows.find((r) => r.projectCode === code)?.projectName || "—"}
                               </div>
                               {isExtra && <div className="text-[10px] text-red-500 font-semibold">EXTRA</div>}
                               {isMissing && <div className="text-[10px] text-red-500 font-semibold">MISSING</div>}

@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMemo } from "react";
 
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
   const r = await fetch(url, init);
@@ -430,4 +431,48 @@ export function useMonthlyWorkerSummary() {
     queryKey: ["monthly-worker-summary"],
     queryFn: () => fetchJson("/api/reconciliation/monthly-worker"),
   });
+}
+
+// ── Nickname resolution ───────────────────────────────────────────────────────
+// Returns two lookup helpers. Both fall back to the real name when no nickname
+// is set, so callers can use them unconditionally everywhere in the UI.
+
+export function useNicknameMaps() {
+  const { data: projectData } = useMasterProjects();
+  const { data: workerData } = useMasterWorkers();
+
+  // project_code → nickname ?? project_name ?? code
+  const projectNick = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const p of projectData?.projects ?? []) {
+      map[p.PROJECT_CODE] = p.NICKNAME ?? p.PROJECT_NAME ?? p.PROJECT_CODE;
+    }
+    return map;
+  }, [projectData]);
+
+  // worker display name (any case) → nickname ?? display_name
+  const workerNick = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const w of workerData?.workers ?? []) {
+      const nick = w.NICKNAME ?? w.DISPLAY_NAME ?? w.WORKER_KEY;
+      map[w.WORKER_KEY] = nick;                          // keyed by worker_key (lower-trim)
+      if (w.DISPLAY_NAME) {
+        map[w.DISPLAY_NAME.toLowerCase().trim()] = nick; // keyed by normalised display name
+        map[w.DISPLAY_NAME] = nick;                      // keyed by exact display name
+      }
+    }
+    return map;
+  }, [workerData]);
+
+  function nickP(code: string | null | undefined): string {
+    if (!code) return "";
+    return projectNick[code] ?? code;
+  }
+
+  function nickW(name: string | null | undefined): string {
+    if (!name) return "";
+    return workerNick[name.toLowerCase().trim()] ?? workerNick[name] ?? name;
+  }
+
+  return { nickP, nickW };
 }
