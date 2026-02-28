@@ -3,7 +3,7 @@
 import { useState, useRef } from "react";
 import { ColumnDef } from "@tanstack/react-table";
 import { toast } from "sonner";
-import { Upload, RefreshCw, FileText } from "lucide-react";
+import { Upload, FileText } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
 import { DataTable } from "@/components/data-table";
 import { StatusBadge } from "@/components/status-badge";
@@ -16,7 +16,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useDocuments, useUploadDocument, useRunOcr } from "@/hooks/queries";
+import { useDocuments, useUploadDocument } from "@/hooks/queries";
 import { RawDocument } from "@/lib/types";
 
 const DOC_TYPES = ["TIMESHEET", "SUBSUB_INVOICE", "MY_INVOICE"] as const;
@@ -24,7 +24,6 @@ const DOC_TYPES = ["TIMESHEET", "SUBSUB_INVOICE", "MY_INVOICE"] as const;
 export default function DocumentsPage() {
   const { data: docs = [], isLoading } = useDocuments();
   const upload = useUploadDocument();
-  const runOcr = useRunOcr();
 
   const [docType, setDocType] = useState<string>("TIMESHEET");
   const fileRef = useRef<HTMLInputElement>(null);
@@ -45,14 +44,6 @@ export default function DocumentsPage() {
     });
 
     if (fileRef.current) fileRef.current.value = "";
-  }
-
-  async function handleOcr(docId: string) {
-    toast.promise(runOcr.mutateAsync(docId), {
-      loading: "Running OCR…",
-      success: "OCR complete",
-      error: (err) => `OCR failed: ${err}`,
-    });
   }
 
   const columns: ColumnDef<RawDocument>[] = [
@@ -99,21 +90,6 @@ export default function DocumentsPage() {
         const v = getValue<string>();
         return v ? new Date(v).toLocaleString() : "—";
       },
-    },
-    {
-      id: "actions",
-      header: "",
-      cell: ({ row }) => (
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={() => handleOcr(row.original.DOC_ID)}
-          disabled={runOcr.isPending}
-        >
-          <RefreshCw className="h-3 w-3 mr-1" />
-          Run OCR
-        </Button>
-      ),
     },
   ];
 
