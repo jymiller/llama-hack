@@ -29,3 +29,6 @@ Thumbs.db
 
 # Snowflake
 *.snowflake/
+
+# Docker logs locally
+*.dockerlogs/
