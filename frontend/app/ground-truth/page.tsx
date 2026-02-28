@@ -369,7 +369,9 @@ export default function GroundTruthPage() {
     return [...rowMap.values()];
   }, [docLines, canonicalProjects, docWorker]);
 
-  // Initialize rows when doc changes or saved GT arrives
+  // Initialize rows when doc changes or saved GT arrives.
+  // If GT exists, use it exclusively — extraction is only a first-time hint.
+  // This ensures cleared cells (deleted by the analyst) stay deleted after save.
   useEffect(() => {
     if (!selectedDocId) {
       setRows([]);
@@ -378,41 +380,42 @@ export default function GroundTruthPage() {
 
     const rowMap = new Map<string, GTRow>();
 
-    // 1. Pre-fill from extracted lines
-    for (const line of docLines) {
-      const code = line.PROJECT_CODE ?? line.PROJECT ?? "";
-      if (!code) continue;
-      const canonical = canonicalProjects.find((p) => p.PROJECT_CODE === code);
-      if (!rowMap.has(code)) {
-        rowMap.set(code, {
-          id: newRowId(),
-          projectCode: code,
-          projectName: canonical?.PROJECT_NAME ?? line.PROJECT ?? "",
-          worker: line.WORKER ?? docWorker,
-          hours: {},
-        });
+    if (existing.length > 0) {
+      // GT has been saved: load from GT only — do NOT blend with extraction
+      for (const gt of existing) {
+        const code = gt.PROJECT_CODE ?? gt.PROJECT ?? "";
+        if (!code) continue;
+        const canonical = canonicalProjects.find((p) => p.PROJECT_CODE === code);
+        if (!rowMap.has(code)) {
+          rowMap.set(code, {
+            id: newRowId(),
+            projectCode: code,
+            projectName: canonical?.PROJECT_NAME ?? gt.PROJECT ?? "",
+            worker: gt.WORKER ?? docWorker,
+            hours: {},
+          });
+        }
+        rowMap.get(code)!.hours[gt.WORK_DATE] = String(gt.HOURS);
       }
-      if (line.WORK_DATE && line.HOURS != null) {
-        rowMap.get(code)!.hours[line.WORK_DATE] = String(line.HOURS);
+    } else {
+      // No GT yet — pre-fill from extracted lines as a starting point
+      for (const line of docLines) {
+        const code = line.PROJECT_CODE ?? line.PROJECT ?? "";
+        if (!code) continue;
+        const canonical = canonicalProjects.find((p) => p.PROJECT_CODE === code);
+        if (!rowMap.has(code)) {
+          rowMap.set(code, {
+            id: newRowId(),
+            projectCode: code,
+            projectName: canonical?.PROJECT_NAME ?? line.PROJECT ?? "",
+            worker: line.WORKER ?? docWorker,
+            hours: {},
+          });
+        }
+        if (line.WORK_DATE && line.HOURS != null) {
+          rowMap.get(code)!.hours[line.WORK_DATE] = String(line.HOURS);
+        }
       }
-    }
-
-    // 2. Override / augment with saved GT (highest priority)
-    for (const gt of existing) {
-      const code = gt.PROJECT_CODE ?? gt.PROJECT ?? "";
-      if (!code) continue;
-      const canonical = canonicalProjects.find((p) => p.PROJECT_CODE === code);
-      if (!rowMap.has(code)) {
-        rowMap.set(code, {
-          id: newRowId(),
-          projectCode: code,
-          projectName: canonical?.PROJECT_NAME ?? gt.PROJECT ?? "",
-          worker: gt.WORKER ?? docWorker,
-          hours: {},
-        });
-      }
-      // GT hours always win over extracted
-      rowMap.get(code)!.hours[gt.WORK_DATE] = String(gt.HOURS);
     }
 
     setRows([...rowMap.values()]);
