@@ -3,3 +3,5 @@ crewai
 crewai-tools
 snowflake-connector-python
 python-dotenv
+streamlit
+pandas

@@ -17,6 +17,8 @@ from agents import (
     create_validation_agent,
     create_validation_task,
     create_reconciliation_task,
+    create_ground_truth_agent,
+    create_ground_truth_task,
 )
 
 
@@ -47,6 +49,7 @@ class TimesheetReconciliationCrew:
         # Create agents
         self.extraction_agent = create_extraction_agent(llm=llm)
         self.validation_agent = create_validation_agent(llm=llm)
+        self.ground_truth_agent = create_ground_truth_agent(llm=llm)
     
     def get_ocr_text(self, doc_id: str) -> tuple[str, str]:
         """
@@ -153,6 +156,69 @@ class TimesheetReconciliationCrew:
             self.conn.commit()
         finally:
             cursor.close()
+    
+    def get_ground_truth(self, doc_id: str) -> list[dict]:
+        """
+        Retrieve ground truth lines from Snowflake for a document.
+        
+        Args:
+            doc_id: Document identifier
+            
+        Returns:
+            List of ground truth line dicts
+        """
+        if not self.conn:
+            return []
+        
+        cursor = self.conn.cursor()
+        try:
+            cursor.execute("""
+                SELECT worker, work_date, project, hours, notes
+                FROM GROUND_TRUTH_LINES
+                WHERE doc_id = %s
+                ORDER BY work_date, project
+            """, (doc_id,))
+            rows = cursor.fetchall()
+            return [
+                {
+                    "worker": row[0],
+                    "work_date": str(row[1]),
+                    "project": row[2],
+                    "hours": float(row[3]) if row[3] else 0,
+                    "notes": row[4],
+                }
+                for row in rows
+            ]
+        finally:
+            cursor.close()
+    
+    def run_ground_truth_comparison(
+        self, extraction_result: dict, ground_truth_lines: list[dict], doc_id: str
+    ) -> dict:
+        """
+        Run ground truth comparison on extracted data.
+        
+        Args:
+            extraction_result: Output from extraction
+            ground_truth_lines: Analyst-entered ground truth
+            doc_id: Document identifier
+            
+        Returns:
+            Accuracy report as dictionary
+        """
+        task = create_ground_truth_task(
+            self.ground_truth_agent, extraction_result, ground_truth_lines, doc_id
+        )
+        
+        crew = Crew(
+            agents=[self.ground_truth_agent],
+            tasks=[task],
+            process=Process.sequential,
+            verbose=True,
+        )
+        
+        result = crew.kickoff()
+        return result.pydantic.model_dump() if hasattr(result, "pydantic") else result
     
     def run_extraction(self, ocr_text: str, doc_id: str, doc_type: str) -> dict:
         """
@@ -295,7 +361,16 @@ class TimesheetReconciliationCrew:
             if save_to_snowflake:
                 self.save_validation_results(validation)
         
-        # Phase 3: Reconcile
+        # Phase 3: Ground Truth Comparison (if ground truth data exists)
+        accuracy_reports = []
+        for extraction in extractions:
+            doc_id = extraction["doc_id"]
+            gt_lines = self.get_ground_truth(doc_id)
+            if gt_lines:
+                report = self.run_ground_truth_comparison(extraction, gt_lines, doc_id)
+                accuracy_reports.append(report)
+        
+        # Phase 4: Reconcile (uses trusted ledger if approvals exist, else extracted)
         reconciliation = self.run_reconciliation(
             timesheets, subsub_invoice, my_invoice, hourly_rate, tolerance_pct
         )
@@ -306,6 +381,7 @@ class TimesheetReconciliationCrew:
         return {
             "extractions": extractions,
             "validations": validations,
+            "accuracy_reports": accuracy_reports,
             "reconciliation": reconciliation,
         }
 

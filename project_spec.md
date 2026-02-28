@@ -25,10 +25,13 @@ The system demonstrates:
 
 Current Situation:
 
-* Prime contractor timesheets exist only as screenshots.
-* A sub-sub contractor sends an invoice downstream.
-* The subcontractor (you) invoices the Prime contractor.
+* Client requires all sub-contractors to log their time with prime contractor
+* Prime contractor requires monthly invoice of all sub-contractors
+* Prime contractor timesheets exist only as screenshots by sub-contractor agency.
+* The sub- contractor invoices the agencym.
+* The agency (you) invoices the Prime contractor.
 * No structured system-of-record exists locally.
+* Human error can creep into any step
 
 Before reconciliation or reporting can occur, the system must:
 
@@ -44,8 +47,8 @@ Before reconciliation or reporting can occur, the system must:
 ### Input
 
 * Prime contractor timesheet screenshots (images)
-* Sub-sub contractor invoice image
-* Subcontractor invoice image
+* Sub-contractor invoice image
+* Agency invoice image
 
 ### Output
 
@@ -128,8 +131,8 @@ CrewAI performs reasoning and workflow decisions.
 Real-world action layer.
 
 Used for one automation:
-
-* Send exception notification (Slack or Gmail)
+* Read from google drive with timesheets and invoices
+* Send exception notification ( Gmail)
 
 Purpose:
 Demonstrate agents taking external action.
@@ -142,7 +145,7 @@ Agent identity and payment demonstration.
 
 Used for:
 
-* One paid external enrichment call
+* Providing agent identity tied to Snowflake RBAC role
 * Logging economic activity of an agent
 
 Purpose:
@@ -154,7 +157,7 @@ Demonstrate autonomous economic agents.
 
 ## Step 1 — Document Ingestion
 
-User uploads:
+User shares google drive location::
 
 * Timesheet screenshots
 * Invoice images
@@ -230,7 +233,7 @@ Business validation:
 
 ```
 Approved Hours × Rate
-≈ Invoice Amount
+≈ Invoice AmountZZ
 ```
 
 Performed for:

@@ -1,6 +1,6 @@
 """
-Run extraction using Snowflake Cortex AI_COMPLETE directly.
-This bypasses CrewAI's LLM requirements and uses Cortex natively.
+Run extraction using Snowflake Cortex multimodal (Claude 3.5 Sonnet vision).
+Sends timesheet images directly to the LLM, bypassing OCR text entirely.
 """
 import json
 import snowflake.connector
@@ -8,49 +8,6 @@ import os
 from dotenv import load_dotenv
 
 load_dotenv()
-
-# Extraction prompt template
-EXTRACTION_PROMPT = """You are a document extraction specialist. Extract structured timesheet data from the following OCR text.
-
-Document ID: {doc_id}
-Document Type: TIMESHEET
-
-OCR Text:
----
-{ocr_text}
----
-
-Extract ALL time entries as a JSON array. For each entry, provide:
-- worker: Worker name (e.g., "Mike Agrawal")
-- work_date: Date in YYYY-MM-DD format
-- project: Project name or code
-- hours: Number of hours as decimal
-- extraction_confidence: 0-1 score based on OCR clarity
-- raw_text_snippet: Original text snippet for audit
-
-Also include:
-- total_hours: Total hours if visible
-- period_start: Start date of period (YYYY-MM-DD)
-- period_end: End date of period (YYYY-MM-DD)
-
-Return ONLY valid JSON in this exact format:
-{{
-  "doc_id": "{doc_id}",
-  "lines": [
-    {{
-      "worker": "Name",
-      "work_date": "YYYY-MM-DD",
-      "project": "Project Name",
-      "hours": 8.0,
-      "extraction_confidence": 0.9,
-      "raw_text_snippet": "original text"
-    }}
-  ],
-  "total_hours": 40.0,
-  "period_start": "YYYY-MM-DD",
-  "period_end": "YYYY-MM-DD",
-  "extraction_notes": "Any notes about extraction quality"
-}}"""
 
 
 def get_connection():
@@ -65,125 +22,79 @@ def get_connection():
     )
 
 
-def extract_with_cortex(conn, doc_id: str, ocr_text: str) -> dict:
+def extract_with_multimodal(conn, doc_id: str, file_path: str) -> str:
     """
-    Use Snowflake Cortex AI_COMPLETE to extract structured data from OCR text.
+    Call the EXTRACT_DOCUMENT_MULTIMODAL stored procedure which sends
+    the image directly to Claude 3.5 Sonnet via SNOWFLAKE.CORTEX.COMPLETE.
+    Returns the procedure's status message.
     """
-    prompt = EXTRACTION_PROMPT.format(doc_id=doc_id, ocr_text=ocr_text)
-    
-    # Escape for SQL
-    escaped_prompt = prompt.replace("'", "''")
-    
     cursor = conn.cursor()
     try:
-        sql = f"""
-            SELECT SNOWFLAKE.CORTEX.COMPLETE(
-                'llama3.1-70b',
-                '{escaped_prompt}'
-            ) AS response
-        """
-        cursor.execute(sql)
+        cursor.execute("CALL EXTRACT_DOCUMENT_MULTIMODAL(%s, %s)", (doc_id, file_path))
         result = cursor.fetchone()
-        response_text = result[0] if result else "{}"
-        
-        # Parse JSON from response
-        # Find JSON in response (it might have extra text)
-        try:
-            # Try to find JSON object in response
-            start = response_text.find('{')
-            end = response_text.rfind('}') + 1
-            if start >= 0 and end > start:
-                json_str = response_text[start:end]
-                return json.loads(json_str)
-        except json.JSONDecodeError:
-            pass
-        
-        return {"doc_id": doc_id, "raw_response": response_text, "lines": [], "error": "Failed to parse JSON"}
-        
-    finally:
-        cursor.close()
-
-
-def save_extracted_lines(conn, doc_id: str, extraction: dict):
-    """Save extracted lines to EXTRACTED_LINES table."""
-    cursor = conn.cursor()
-    try:
-        for i, line in enumerate(extraction.get("lines", [])):
-            cursor.execute("""
-                INSERT INTO EXTRACTED_LINES 
-                (line_id, doc_id, worker, work_date, project, hours, 
-                 extraction_confidence, raw_text_snippet)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-            """, (
-                f"{doc_id}_L{i+1}",
-                doc_id,
-                line.get("worker"),
-                line.get("work_date"),
-                line.get("project"),
-                line.get("hours"),
-                line.get("extraction_confidence"),
-                line.get("raw_text_snippet"),
-            ))
-        conn.commit()
-        print(f"  Saved {len(extraction.get('lines', []))} lines to EXTRACTED_LINES")
-    except Exception as e:
-        print(f"  Error saving lines: {e}")
-        conn.rollback()
+        return result[0] if result else "No result returned"
     finally:
         cursor.close()
 
 
 def main():
     print("=" * 60)
-    print("Extracting timesheets using Snowflake Cortex")
+    print("Extracting timesheets using Cortex multimodal (Claude vision)")
     print("=" * 60)
-    
+
     conn = get_connection()
-    
+
     # Fetch documents from RAW_DOCUMENTS
     cursor = conn.cursor()
-    cursor.execute("SELECT doc_id, doc_type, ocr_text FROM RAW_DOCUMENTS ORDER BY doc_id")
+    cursor.execute("SELECT doc_id, doc_type, file_path FROM RAW_DOCUMENTS ORDER BY doc_id")
     documents = cursor.fetchall()
     cursor.close()
-    
-    all_results = {}
-    
-    for doc_id, doc_type, ocr_text in documents:
-        print(f"\n>>> Processing {doc_id}...")
-        
+
+    results = {}
+
+    for doc_id, doc_type, file_path in documents:
+        print(f"\n>>> Processing {doc_id} ({file_path})...")
+
         try:
-            result = extract_with_cortex(conn, doc_id, ocr_text)
-            all_results[doc_id] = result
-            
-            lines_count = len(result.get("lines", []))
-            total_hours = result.get("total_hours", "N/A")
-            print(f"<<< Extracted {lines_count} lines, Total hours: {total_hours}")
-            
-            # Save to Snowflake
-            if lines_count > 0:
-                save_extracted_lines(conn, doc_id, result)
-                
+            status = extract_with_multimodal(conn, doc_id, file_path)
+            results[doc_id] = status
+            print(f"<<< {status}")
         except Exception as e:
             print(f"<<< ERROR: {e}")
-            all_results[doc_id] = {"doc_id": doc_id, "error": str(e), "lines": []}
-    
-    # Save results to JSON file
-    with open("extraction_results.json", "w") as f:
-        json.dump(all_results, f, indent=2, default=str)
-    
+            results[doc_id] = f"ERROR: {e}"
+
+    # Verify results by querying EXTRACTED_LINES
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT doc_id, COUNT(*) AS line_count, SUM(hours) AS total_hours
+        FROM EXTRACTED_LINES
+        GROUP BY doc_id
+        ORDER BY doc_id
+    """)
+    summary = cursor.fetchall()
+    cursor.close()
+
     print("\n" + "=" * 60)
     print("Extraction complete!")
     print("=" * 60)
-    
-    # Summary
-    total_lines = sum(len(r.get("lines", [])) for r in all_results.values())
-    total_hours = sum(r.get("total_hours", 0) or 0 for r in all_results.values())
-    print(f"\nDocuments processed: {len(all_results)}")
-    print(f"Total lines extracted: {total_lines}")
-    print(f"Total hours: {total_hours}")
-    
+    print(f"\nDocuments processed: {len(results)}")
+    print("\nPer-document summary (from EXTRACTED_LINES):")
+    total_lines = 0
+    total_hours = 0
+    for doc_id, line_count, hours in summary:
+        print(f"  {doc_id}: {line_count} lines, {hours:.1f} hours")
+        total_lines += line_count
+        total_hours += float(hours)
+
+    print(f"\nTotal lines: {total_lines}")
+    print(f"Total hours: {total_hours:.1f}")
+
+    # Save status results to JSON
+    with open("extraction_results.json", "w") as f:
+        json.dump(results, f, indent=2, default=str)
+
     conn.close()
-    return all_results
+    return results
 
 
 if __name__ == "__main__":
