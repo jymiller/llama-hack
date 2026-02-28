@@ -194,6 +194,8 @@ function DocCard({
   doc,
   lineCount,
   gtCount,
+  gtTotalHours,
+  extTotalHours,
   selected,
   unsaved,
   onClick,
@@ -201,18 +203,25 @@ function DocCard({
   doc: RawDocument;
   lineCount: number;
   gtCount: number;
+  gtTotalHours: number | null;
+  extTotalHours: number;
   selected: boolean;
   unsaved: boolean;
   onClick: () => void;
 }) {
   const hasGT = gtCount > 0;
   const hasLines = lineCount > 0;
+  const delta = hasGT && gtTotalHours != null ? extTotalHours - gtTotalHours : null;
+  const hasDelta = delta != null && Math.abs(delta) >= 0.01;
+
   return (
     <div
       onClick={onClick}
       className={`rounded-lg border cursor-pointer transition-all overflow-hidden ${
         selected || unsaved
           ? "border-yellow-400 ring-2 ring-yellow-200"
+          : hasDelta
+          ? "border-red-400 ring-1 ring-red-100"
           : hasGT
           ? "border-green-400 ring-1 ring-green-100"
           : "border-slate-200 hover:border-slate-300 hover:shadow-sm"
@@ -235,6 +244,8 @@ function DocCard({
           className={`absolute top-2 right-2 flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold ${
             unsaved
               ? "bg-yellow-100 text-yellow-700"
+              : hasDelta
+              ? "bg-red-100 text-red-700"
               : hasGT
               ? "bg-green-100 text-green-700"
               : hasLines
@@ -244,6 +255,8 @@ function DocCard({
         >
           {unsaved ? (
             <RotateCcw className="h-3 w-3" />
+          ) : hasDelta ? (
+            <CheckSquare className="h-3 w-3" />
           ) : hasGT ? (
             <CheckSquare className="h-3 w-3" />
           ) : (
@@ -251,8 +264,10 @@ function DocCard({
           )}
           {unsaved
             ? "Unsaved"
+            : hasDelta
+            ? `Δ ${delta! >= 0 ? "+" : ""}${delta!.toFixed(1)}h`
             : hasGT
-            ? `${gtCount} GT rows`
+            ? `${gtTotalHours!.toFixed(1)}h`
             : hasLines
             ? `${lineCount} extracted`
             : "Not extracted"}
@@ -303,7 +318,7 @@ export default function GroundTruthPage() {
     [allLines]
   );
 
-  // GT row counts for every doc (from summary endpoint)
+  // GT row counts and total hours for every doc (from summary endpoint)
   const gtCountByDoc = useMemo(
     () =>
       gtCounts.reduce<Record<string, number>>((acc, r) => {
@@ -311,6 +326,24 @@ export default function GroundTruthPage() {
         return acc;
       }, {}),
     [gtCounts]
+  );
+
+  const gtHoursByDoc = useMemo(
+    () =>
+      gtCounts.reduce<Record<string, number>>((acc, r) => {
+        acc[r.DOC_ID] = r.TOTAL_HOURS;
+        return acc;
+      }, {}),
+    [gtCounts]
+  );
+
+  const extTotalByDoc = useMemo(
+    () =>
+      allLines.reduce<Record<string, number>>((acc, l) => {
+        acc[l.DOC_ID] = (acc[l.DOC_ID] ?? 0) + (l.HOURS ?? 0);
+        return acc;
+      }, {}),
+    [allLines]
   );
 
   const docLines: ExtractedLine[] = selectedDocId
@@ -583,6 +616,8 @@ export default function GroundTruthPage() {
             doc={doc}
             lineCount={linesByDoc[String(doc.DOC_ID)]?.length ?? 0}
             gtCount={gtCountByDoc[String(doc.DOC_ID)] ?? 0}
+            gtTotalHours={gtHoursByDoc[String(doc.DOC_ID)] ?? null}
+            extTotalHours={extTotalByDoc[String(doc.DOC_ID)] ?? 0}
             selected={selectedDocId === String(doc.DOC_ID)}
             unsaved={needsSave && selectedDocId === String(doc.DOC_ID)}
             onClick={() => {
@@ -844,9 +879,7 @@ export default function GroundTruthPage() {
                     <div className="flex-1 h-px bg-slate-200" />
                     <div className="flex items-center gap-3 text-[10px] text-slate-400">
                       <span className="flex items-center gap-1"><span className="inline-block w-2.5 h-2.5 rounded-sm bg-green-200 border border-green-300" />Match</span>
-                      <span className="flex items-center gap-1"><span className="inline-block w-2.5 h-2.5 rounded-sm bg-red-200 border border-red-300" />Discrepancy</span>
-                      <span className="flex items-center gap-1"><span className="inline-block w-2.5 h-2.5 rounded-sm bg-amber-200 border border-amber-300" />Extra</span>
-                      <span className="flex items-center gap-1"><span className="inline-block w-2.5 h-2.5 rounded-sm bg-slate-100 border border-slate-300" />Missing</span>
+                      <span className="flex items-center gap-1"><span className="inline-block w-2.5 h-2.5 rounded-sm bg-red-200 border border-red-300" />Difference</span>
                     </div>
                   </div>
                   <table className="w-full text-xs border-collapse">
@@ -872,45 +905,27 @@ export default function GroundTruthPage() {
                         return (
                           <tr
                             key={code}
-                            className={
-                              isMissing ? "bg-slate-50 opacity-60"
-                              : isExtra ? "bg-purple-50"
-                              : i % 2 === 0 ? "bg-white" : "bg-slate-50"
-                            }
+                            className={i % 2 === 0 ? "bg-white" : "bg-slate-50"}
                           >
-                            <td className={`border border-slate-200 px-3 py-2 ${isExtra ? "border-l-2 border-l-purple-400" : isMissing ? "border-l-2 border-l-slate-300" : ""}`}>
+                            <td className={`border border-slate-200 px-3 py-2 ${isMissing || isExtra ? "border-l-2 border-l-red-400" : ""}`}>
                               <div className="font-mono text-[10px] text-blue-700">{code}</div>
                               <div className="text-[11px] text-slate-500">
                                 {extRow?.projectName ?? rows.find((r) => r.projectCode === code)?.projectName ?? "—"}
                               </div>
-                              {isExtra && <div className="text-[10px] text-purple-600 font-semibold">EXTRA</div>}
-                              {isMissing && <div className="text-[10px] text-slate-400 font-semibold">MISSING</div>}
+                              {isExtra && <div className="text-[10px] text-red-500 font-semibold">EXTRA</div>}
+                              {isMissing && <div className="text-[10px] text-red-500 font-semibold">MISSING</div>}
                             </td>
                             {dates.map((d) => {
                               const extH = extRow?.hours[d] ?? 0;
                               const gtH = gtRow?.[d] ?? 0;
-                              let cellClass = "text-slate-300";
-                              let label = "";
-
-                              if (isMissing) {
-                                label = "—";
-                                cellClass = "text-slate-300";
-                              } else if (extH > 0 && gtH > 0) {
-                                label = extH.toFixed(1);
-                                cellClass = Math.abs(extH - gtH) < 0.01
-                                  ? "bg-green-100 text-green-800 font-semibold"
-                                  : "bg-red-100 text-red-800 font-semibold";
-                              } else if (extH > 0) {
-                                label = extH.toFixed(1);
-                                cellClass = isExtra ? "text-purple-700" : "bg-amber-100 text-amber-800 font-semibold";
-                              } else if (gtH > 0) {
-                                label = "—";
-                                cellClass = "text-slate-300";
-                              }
+                              const hasAny = extH > 0 || gtH > 0;
+                              const isMatch = hasAny && Math.abs(extH - gtH) < 0.01;
+                              const cellClass = !hasAny ? "" : isMatch ? "bg-green-100 text-green-800 font-semibold" : "bg-red-100 text-red-800 font-semibold";
+                              const label = extH > 0 ? extH.toFixed(1) : hasAny ? "—" : "";
 
                               return (
                                 <td key={d} className={`border border-slate-200 px-2 py-2 text-center font-mono ${cellClass}`}>
-                                  {label || ""}
+                                  {label}
                                 </td>
                               );
                             })}

@@ -3,8 +3,8 @@ import { runQuery } from "@/lib/snowflake";
 
 export async function GET() {
   try {
-    const rows = await runQuery<{ DOC_ID: string; ROW_COUNT: number }>(
-      `SELECT DOC_ID, COUNT(*) AS ROW_COUNT
+    const rows = await runQuery<{ DOC_ID: string; ROW_COUNT: number; TOTAL_HOURS: number }>(
+      `SELECT DOC_ID, COUNT(*) AS ROW_COUNT, SUM(HOURS) AS TOTAL_HOURS
        FROM CURATED_GROUND_TRUTH
        GROUP BY DOC_ID`
     );

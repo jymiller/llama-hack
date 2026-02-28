@@ -133,10 +133,10 @@ export function useRunValidation() {
 // ── Ground Truth ─────────────────────────────────────────────────────────────
 
 export function useGroundTruthCounts() {
-  return useQuery<{ DOC_ID: string; ROW_COUNT: number }[]>({
+  return useQuery<{ DOC_ID: string; ROW_COUNT: number; TOTAL_HOURS: number }[]>({
     queryKey: ["ground-truth-counts"],
     queryFn: () =>
-      fetchJson<{ DOC_ID: string; ROW_COUNT: number }[]>("/api/ground-truth"),
+      fetchJson<{ DOC_ID: string; ROW_COUNT: number; TOTAL_HOURS: number }[]>("/api/ground-truth"),
   });
 }
 
