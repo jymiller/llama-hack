@@ -76,6 +76,21 @@ export function useRunExtraction() {
   });
 }
 
+export function useRunExtractionAll() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      fetch("/api/extraction/all", { method: "POST" }).then((r) => {
+        if (!r.ok) return r.json().then((e) => Promise.reject(e.error));
+        return r.json();
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["extraction"] });
+      qc.invalidateQueries({ queryKey: ["documents"] });
+    },
+  });
+}
+
 // ── Validation ───────────────────────────────────────────────────────────────
 
 export function useValidation() {
