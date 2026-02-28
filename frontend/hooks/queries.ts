@@ -43,7 +43,7 @@ export function useUploadDocument() {
 export function useRunOcr() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (docId: number) =>
+    mutationFn: (docId: string) =>
       fetch(`/api/documents/${docId}/ocr`, { method: "POST" }).then((r) => {
         if (!r.ok) return r.json().then((e) => Promise.reject(e.error));
         return r.json();
@@ -64,7 +64,7 @@ export function useExtractedLines() {
 export function useRunExtraction() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (docId: number) =>
+    mutationFn: (docId: string) =>
       fetch(`/api/extraction/${docId}`, { method: "POST" }).then((r) => {
         if (!r.ok) return r.json().then((e) => Promise.reject(e.error));
         return r.json();
@@ -111,7 +111,7 @@ export function useAccuracy() {
 
 // ── Ground Truth ─────────────────────────────────────────────────────────────
 
-export function useGroundTruth(docId: number | null) {
+export function useGroundTruth(docId: string | null) {
   return useQuery<GroundTruthLine[]>({
     queryKey: ["ground-truth", docId],
     queryFn: () => fetchJson<GroundTruthLine[]>(`/api/ground-truth/${docId}`),
@@ -126,7 +126,7 @@ export function useSaveGroundTruth() {
       docId,
       lines,
     }: {
-      docId: number;
+      docId: string;
       lines: Omit<GroundTruthLine, "GT_ID" | "ENTERED_AT">[];
     }) =>
       fetch(`/api/ground-truth/${docId}`, {
@@ -146,7 +146,7 @@ export function useSaveGroundTruth() {
 
 // ── Approvals ────────────────────────────────────────────────────────────────
 
-export function useApprovalLines(docId: number | null) {
+export function useApprovalLines(docId: string | null) {
   return useQuery<ApprovalLineRow[]>({
     queryKey: ["approvals", docId],
     queryFn: () => fetchJson<ApprovalLineRow[]>(`/api/approvals/${docId}`),
@@ -158,8 +158,8 @@ export function useDecideLine() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (payload: {
-      docId: number;
-      line_id: number;
+      docId: string;
+      line_id: string;
       decision: "APPROVED" | "REJECTED" | "CORRECTED";
       corrected_hours?: number | null;
       corrected_date?: string | null;
@@ -184,7 +184,7 @@ export function useDecideLine() {
 export function useApproveAll() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (docId: number) =>
+    mutationFn: (docId: string) =>
       fetch(`/api/approvals/${docId}/bulk`, { method: "POST" }).then((r) => {
         if (!r.ok) return r.json().then((e) => Promise.reject(e.error));
         return r.json();
@@ -199,7 +199,7 @@ export function useApproveAll() {
 export function useClearApprovals() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (docId: number) =>
+    mutationFn: (docId: string) =>
       fetch(`/api/approvals/${docId}/bulk`, { method: "DELETE" }).then((r) => {
         if (!r.ok) return r.json().then((e) => Promise.reject(e.error));
         return r.json();

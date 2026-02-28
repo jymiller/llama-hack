@@ -47,7 +47,7 @@ export default function DocumentsPage() {
     if (fileRef.current) fileRef.current.value = "";
   }
 
-  async function handleOcr(docId: number) {
+  async function handleOcr(docId: string) {
     toast.promise(runOcr.mutateAsync(docId), {
       loading: "Running OCR…",
       success: "OCR complete",

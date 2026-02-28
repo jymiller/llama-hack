@@ -1,5 +1,5 @@
 export interface RawDocument {
-  DOC_ID: number;
+  DOC_ID: string;
   FILE_NAME: string;
   DOC_TYPE: "TIMESHEET" | "SUBSUB_INVOICE" | "MY_INVOICE";
   STAGE_PATH: string;
@@ -9,8 +9,8 @@ export interface RawDocument {
 }
 
 export interface ExtractedLine {
-  LINE_ID: number;
-  DOC_ID: number;
+  LINE_ID: string;
+  DOC_ID: string;
   WORKER: string | null;
   WORK_DATE: string | null;
   PROJECT: string | null;
@@ -22,9 +22,9 @@ export interface ExtractedLine {
 }
 
 export interface ValidationResult {
-  RESULT_ID: number;
-  DOC_ID: number;
-  LINE_ID: number | null;
+  RESULT_ID: string;
+  DOC_ID: string;
+  LINE_ID: string | null;
   CHECK_NAME: string;
   STATUS: "PASS" | "FAIL" | "WARN";
   MESSAGE: string | null;
@@ -32,9 +32,9 @@ export interface ValidationResult {
 }
 
 export interface LedgerApproval {
-  APPROVAL_ID: number;
-  LINE_ID: number;
-  DOC_ID: number;
+  APPROVAL_ID: string;
+  LINE_ID: string;
+  DOC_ID: string;
   DECISION: "APPROVED" | "REJECTED" | "CORRECTED";
   CORRECTED_HOURS: number | null;
   CORRECTED_DATE: string | null;
@@ -44,21 +44,21 @@ export interface LedgerApproval {
 }
 
 export interface ReconSummary {
-  RECON_ID: number;
+  RECON_ID: string;
   PERIOD_MONTH: string;
   WORKER: string | null;
   APPROVED_HOURS: number;
-  HOURLY_RATE: number;
+  HOURLY_RATE: number | null;
   COMPUTED_AMOUNT: number;
   INVOICE_AMOUNT: number | null;
   VARIANCE: number | null;
   VARIANCE_PCT: number | null;
-  STATUS: "MATCH" | "VARIANCE" | "MISSING_INVOICE" | "MISSING_TIMESHEET";
+  STATUS: string | null;
   CREATED_AT: string;
 }
 
 export interface AccuracyRow {
-  DOC_ID: number;
+  DOC_ID: string;
   WORKER: string | null;
   WORK_DATE: string | null;
   EXTRACTED_HOURS: number | null;
@@ -68,8 +68,8 @@ export interface AccuracyRow {
 }
 
 export interface GroundTruthLine {
-  GT_ID: number;
-  DOC_ID: number;
+  GT_ID: string;
+  DOC_ID: string;
   WORKER: string;
   WORK_DATE: string;
   PROJECT: string | null;
@@ -80,8 +80,8 @@ export interface GroundTruthLine {
 }
 
 export interface TrustedLedgerRow {
-  LINE_ID: number;
-  DOC_ID: number;
+  LINE_ID: string;
+  DOC_ID: string;
   WORKER: string | null;
   WORK_DATE: string | null;
   PROJECT: string | null;
@@ -93,7 +93,7 @@ export interface TrustedLedgerRow {
 }
 
 export interface PipelineStatus {
-  DOC_ID: number;
+  DOC_ID: string;
   FILE_NAME: string;
   DOC_TYPE: string;
   OCR_DONE: boolean;

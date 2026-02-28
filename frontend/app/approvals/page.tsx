@@ -29,7 +29,7 @@ import { ApprovalLineRow } from "@/lib/types";
 export default function ApprovalsPage() {
   const { data: docs = [] } = useDocuments();
   const [selectedDoc, setSelectedDoc] = useState<string>("");
-  const docId = selectedDoc ? Number(selectedDoc) : null;
+  const docId = selectedDoc || null;
 
   const { data: lines = [], isLoading } = useApprovalLines(docId);
   const decide = useDecideLine();
@@ -39,12 +39,12 @@ export default function ApprovalsPage() {
   const [clearOpen, setClearOpen] = useState(false);
 
   // Inline correction state
-  const [correcting, setCorrecting] = useState<number | null>(null);
+  const [correcting, setCorrecting] = useState<string | null>(null);
   const [corrHours, setCorrHours] = useState("");
   const [corrNote, setCorrNote] = useState("");
 
   async function handleDecide(
-    lineId: number,
+    lineId: string,
     decision: "APPROVED" | "REJECTED" | "CORRECTED",
     extra?: { corrected_hours?: number | null; analyst_note?: string | null }
   ) {

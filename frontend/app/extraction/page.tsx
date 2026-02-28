@@ -38,7 +38,7 @@ export default function ExtractionPage() {
 
   async function handleExtract() {
     if (!selectedDoc) return;
-    toast.promise(runExtraction.mutateAsync(Number(selectedDoc)), {
+    toast.promise(runExtraction.mutateAsync(selectedDoc), {
       loading: "Running multimodal extraction…",
       success: "Extraction complete",
       error: (err) => `Extraction failed: ${err}`,

@@ -19,8 +19,12 @@ import {
   useGroundTruth,
   useSaveGroundTruth,
 } from "@/hooks/queries";
-import { GroundTruthLine } from "@/lib/types";
+import { ExtractedLine, GroundTruthLine } from "@/lib/types";
 import { toISODate } from "@/lib/utils";
+
+// Stable empty arrays to avoid triggering useEffect on every render while queries load
+const EMPTY_LINES: ExtractedLine[] = [];
+const EMPTY_GT: GroundTruthLine[] = [];
 
 interface GridRow {
   WORKER: string;
@@ -32,11 +36,11 @@ interface GridRow {
 
 export default function GroundTruthPage() {
   const { data: docs = [] } = useDocuments();
-  const { data: allLines = [] } = useExtractedLines();
+  const { data: allLines = EMPTY_LINES } = useExtractedLines();
   const [selectedDoc, setSelectedDoc] = useState<string>("");
-  const docId = selectedDoc ? Number(selectedDoc) : null;
+  const docId = selectedDoc || null;
 
-  const { data: existing = [] } = useGroundTruth(docId);
+  const { data: existing = EMPTY_GT } = useGroundTruth(docId);
   const save = useSaveGroundTruth();
 
   const [grid, setGrid] = useState<GridRow[]>([]);
@@ -107,7 +111,7 @@ export default function GroundTruthPage() {
     const lines: Omit<GroundTruthLine, "GT_ID" | "ENTERED_AT">[] = grid
       .filter((r) => r.WORKER && r.WORK_DATE && r.HOURS)
       .map((r) => ({
-        DOC_ID: docId,
+        DOC_ID: docId!,
         WORKER: r.WORKER,
         WORK_DATE: r.WORK_DATE,
         PROJECT: r.PROJECT || null,
