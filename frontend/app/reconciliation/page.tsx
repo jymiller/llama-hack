@@ -109,6 +109,14 @@ export default function ReconciliationPage() {
     },
   ];
 
+  function deltaColor(delta: number | null): string {
+    if (delta == null) return "";
+    const abs = Math.abs(delta);
+    if (abs <= 2) return "text-green-600";
+    if (abs <= 10) return "text-amber-600";
+    return "text-red-600 font-semibold";
+  }
+
   return (
     <div>
       <PageHeader
@@ -135,6 +143,55 @@ export default function ReconciliationPage() {
         }
       />
 
+      {/* Monthly worker comparison — shown at top */}
+      {monthly.length > 0 && (
+        <div className="mb-8">
+          <h2 className="text-base font-semibold mb-3 text-slate-800">Monthly Worker Summary</h2>
+          <div className="rounded-md border overflow-x-auto">
+            <table className="w-full text-sm border-collapse">
+              <thead className="bg-slate-50">
+                <tr>
+                  {["Worker", "Month", "Timesheet Hrs", "GT Hrs", "Δ GT", "Invoice Hrs", "Δ Invoice"].map((h) => (
+                    <th key={h} className="px-3 py-2 text-left font-semibold text-slate-600 border-b border-slate-200">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {monthly.map((row: MonthlyWorkerRow, i: number) => {
+                  const hasGT = row.GT_HOURS != null;
+                  const hasInvoice = row.EXT_INVOICE_HOURS > 0;
+                  const gtDelta = hasGT ? row.EXT_TIMESHEET_HOURS - row.GT_HOURS! : null;
+                  const invDelta = hasInvoice ? row.EXT_INVOICE_HOURS - row.EXT_TIMESHEET_HOURS : null;
+                  return (
+                    <tr key={`${row.WORKER}-${row.PERIOD_MONTH}`} className={i % 2 === 0 ? "bg-white" : "bg-slate-50"}>
+                      <td className="px-3 py-2 border-b border-slate-100 font-medium">{nickW(row.WORKER)}</td>
+                      <td className="px-3 py-2 border-b border-slate-100 font-mono text-xs">{row.PERIOD_MONTH}</td>
+                      <td className="px-3 py-2 border-b border-slate-100 font-mono text-right">{row.EXT_TIMESHEET_HOURS.toFixed(1)}</td>
+                      <td className="px-3 py-2 border-b border-slate-100 font-mono text-right">
+                        {hasGT ? row.GT_HOURS!.toFixed(1) : <span className="text-slate-300">—</span>}
+                      </td>
+                      <td className={`px-3 py-2 border-b border-slate-100 font-mono text-right ${deltaColor(gtDelta)}`}>
+                        {gtDelta == null
+                          ? <span className="text-slate-300">—</span>
+                          : `${gtDelta >= 0 ? "+" : ""}${gtDelta.toFixed(1)}`}
+                      </td>
+                      <td className="px-3 py-2 border-b border-slate-100 font-mono text-right">
+                        {hasInvoice ? row.EXT_INVOICE_HOURS.toFixed(1) : <span className="text-slate-300">—</span>}
+                      </td>
+                      <td className={`px-3 py-2 border-b border-slate-100 font-mono text-right ${deltaColor(invDelta)}`}>
+                        {invDelta == null
+                          ? <span className="text-slate-300">—</span>
+                          : `${invDelta >= 0 ? "+" : ""}${invDelta.toFixed(1)}`}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
         <MetricCard
           title="Approved Hours"
@@ -158,61 +215,6 @@ export default function ReconciliationPage() {
           deltaPositive={varianceCount === 0}
         />
       </div>
-
-      {/* Monthly worker comparison */}
-      {monthly.length > 0 && (
-        <div className="mb-8">
-          <h2 className="text-base font-semibold mb-3 text-slate-800">Monthly Worker Summary</h2>
-          <div className="rounded-md border overflow-x-auto">
-            <table className="w-full text-sm border-collapse">
-              <thead className="bg-slate-50">
-                <tr>
-                  {["Worker", "Month", "Timesheet (extracted)", "GT Hours", "Δ vs GT", "Subcontract Invoice", "Δ vs Timesheet"].map((h) => (
-                    <th key={h} className="px-3 py-2 text-left font-semibold text-slate-600 border-b border-slate-200">{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {monthly.map((row: MonthlyWorkerRow, i: number) => {
-                  const hasGT = row.GT_HOURS != null;
-                  const hasInvoice = row.EXT_INVOICE_HOURS > 0;
-                  const gtDelta = hasGT ? row.EXT_TIMESHEET_HOURS - row.GT_HOURS! : null;
-                  const invDelta = hasInvoice ? row.EXT_INVOICE_HOURS - row.EXT_TIMESHEET_HOURS : null;
-                  const gtMatched = gtDelta != null && Math.abs(gtDelta) < 0.01;
-                  const invMatched = invDelta != null && Math.abs(invDelta) < 0.01;
-                  return (
-                    <tr key={`${row.WORKER}-${row.PERIOD_MONTH}`} className={i % 2 === 0 ? "bg-white" : "bg-slate-50"}>
-                      <td className="px-3 py-2 border-b border-slate-100 font-medium">{nickW(row.WORKER)}</td>
-                      <td className="px-3 py-2 border-b border-slate-100 font-mono text-xs">{row.PERIOD_MONTH}</td>
-                      <td className="px-3 py-2 border-b border-slate-100 font-mono text-right">{row.EXT_TIMESHEET_HOURS.toFixed(1)}</td>
-                      <td className="px-3 py-2 border-b border-slate-100 font-mono text-right">
-                        {hasGT ? row.GT_HOURS!.toFixed(1) : <span className="text-slate-300">—</span>}
-                      </td>
-                      <td className="px-3 py-2 border-b border-slate-100 font-mono text-right">
-                        {gtDelta == null ? <span className="text-slate-300">—</span> : (
-                          <span className={gtMatched ? "text-green-600" : "text-red-600 font-semibold"}>
-                            {gtDelta >= 0 ? "+" : ""}{gtDelta.toFixed(1)}
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-3 py-2 border-b border-slate-100 font-mono text-right">
-                        {hasInvoice ? row.EXT_INVOICE_HOURS.toFixed(1) : <span className="text-slate-300">—</span>}
-                      </td>
-                      <td className="px-3 py-2 border-b border-slate-100 font-mono text-right">
-                        {invDelta == null ? <span className="text-slate-300">—</span> : (
-                          <span className={invMatched ? "text-green-600" : "text-red-600 font-semibold"}>
-                            {invDelta >= 0 ? "+" : ""}{invDelta.toFixed(1)}
-                          </span>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
 
       {isLoading ? (
         <p className="text-sm text-muted-foreground">Loading…</p>
