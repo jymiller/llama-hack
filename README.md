@@ -282,6 +282,129 @@ cd frontend && npm install && npm run dev
 
 ---
 
+## SPCS Deployment (Snowpark Container Services)
+
+The Next.js app is deployed to Snowflake's Snowpark Container Services for production access.
+
+### Live Demo
+
+| Item | Value |
+|------|-------|
+| **App URL** | `https://iqzdjx-sfsehol-llama-lounge-hackathon-ucgals.snowflakecomputing.app` |
+| **Username** | `JUDGE` |
+| **Password** | *(ask the team)* |
+
+### Deployment Architecture
+
+```
+Docker Image (linux/amd64)
+    └── Next.js standalone build
+    └── SPCS OAuth authentication via /snowflake/session/token
+            │
+            ▼
+┌─────────────────────────────────────────────────────────┐
+│  Snowflake Account: SFSEHOL-LLAMA_LOUNGE_HACKATHON      │
+│  ┌───────────────────────────────────────────────────┐  │
+│  │  Image Repository: RECONCILIATION.PUBLIC.recon_repo│  │
+│  └───────────────────────────────────────────────────┘  │
+│  ┌───────────────────────────────────────────────────┐  │
+│  │  Compute Pool: recon_pool (CPU_X64_XS, 1 node)    │  │
+│  └───────────────────────────────────────────────────┘  │
+│  ┌───────────────────────────────────────────────────┐  │
+│  │  Service: recon_service (port 3000, public)       │  │
+│  └───────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────┘
+```
+
+### Key Implementation Details
+
+**SPCS OAuth Authentication**: Containers in SPCS cannot reach external endpoints by default. Instead of using password authentication (which requires external network access), the app detects if it's running in SPCS by checking for the token file at `/snowflake/session/token` and uses OAuth:
+
+```typescript
+// frontend/lib/snowflake.ts
+const SPCS_TOKEN_PATH = "/snowflake/session/token";
+const isSpcs = fs.existsSync(SPCS_TOKEN_PATH);
+
+if (isSpcs) {
+  const token = fs.readFileSync(SPCS_TOKEN_PATH, "utf-8");
+  return snowflake.createConnection({
+    account: process.env.SNOWFLAKE_ACCOUNT,
+    host: process.env.SNOWFLAKE_HOST,  // auto-set by SPCS
+    authenticator: "OAUTH",
+    token: token,
+    // ...
+  });
+}
+```
+
+### Deployment Steps
+
+1. **Create Image Repository**
+   ```sql
+   CREATE IMAGE REPOSITORY RECONCILIATION.PUBLIC.recon_repo;
+   ```
+
+2. **Build & Push Docker Image**
+   ```bash
+   cd frontend
+   docker build --platform linux/amd64 -t recon-app .
+   docker login <repository_url>
+   docker tag recon-app <repository_url>/recon-app:latest
+   docker push <repository_url>/recon-app:latest
+   ```
+
+3. **Create Compute Pool**
+   ```sql
+   CREATE COMPUTE POOL recon_pool
+     MIN_NODES = 1
+     MAX_NODES = 1
+     INSTANCE_FAMILY = CPU_X64_XS;
+   ```
+
+4. **Deploy Service**
+   ```sql
+   CREATE SERVICE RECONCILIATION.PUBLIC.recon_service
+     IN COMPUTE POOL recon_pool
+     FROM SPECIFICATION $$
+       spec:
+         containers:
+           - name: recon-app
+             image: <repository_url>/recon-app:latest
+         endpoints:
+           - name: ui
+             port: 3000
+             public: true
+             protocol: HTTP
+     $$;
+   ```
+
+5. **Grant Public Access**
+   ```sql
+   GRANT USAGE ON DATABASE RECONCILIATION TO ROLE PUBLIC;
+   GRANT USAGE ON SCHEMA RECONCILIATION.PUBLIC TO ROLE PUBLIC;
+   GRANT SELECT ON ALL TABLES IN SCHEMA RECONCILIATION.PUBLIC TO ROLE PUBLIC;
+   GRANT SELECT ON ALL VIEWS IN SCHEMA RECONCILIATION.PUBLIC TO ROLE PUBLIC;
+   GRANT SERVICE ROLE RECONCILIATION.PUBLIC.recon_service!ALL_ENDPOINTS_USAGE TO ROLE PUBLIC;
+   ```
+
+6. **Get Public URL**
+   ```sql
+   SHOW ENDPOINTS IN SERVICE RECONCILIATION.PUBLIC.recon_service;
+   -- ingress_url column contains the public URL
+   ```
+
+### Troubleshooting
+
+| Symptom | Fix |
+|---------|-----|
+| Login prompt at URL | Expected — SPCS requires Snowflake auth. Use the JUDGE credentials. |
+| Service stuck in PENDING | Compute pool not ready — wait for IDLE state |
+| Container keeps restarting | Check logs: `CALL SYSTEM$GET_SERVICE_LOGS('...', '0', 'recon-app', 100)` |
+| No data in app | Verify grants on tables/views to PUBLIC role |
+| Connection error in logs | Ensure using SPCS OAuth (token file), not password auth |
+
+---
+
 ## Project Structure
 
 ```
