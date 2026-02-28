@@ -3,11 +3,12 @@
 import { useState, useRef } from "react";
 import { ColumnDef } from "@tanstack/react-table";
 import { toast } from "sonner";
-import { Upload, FileText } from "lucide-react";
+import { Upload, FileText, Trash2 } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
 import { DataTable } from "@/components/data-table";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { ConfirmationDialog } from "@/components/confirmation-dialog";
 import {
   Select,
   SelectContent,
@@ -15,7 +16,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useDocuments, useUploadDocument } from "@/hooks/queries";
+import { useDocuments, useUploadDocument, useDeleteDocument } from "@/hooks/queries";
 import { RawDocument } from "@/lib/types";
 
 const DOC_TYPES = ["TIMESHEET", "SUBSUB_INVOICE", "MY_INVOICE"] as const;
@@ -23,9 +24,11 @@ const DOC_TYPES = ["TIMESHEET", "SUBSUB_INVOICE", "MY_INVOICE"] as const;
 export default function DocumentsPage() {
   const { data: docs = [], isLoading } = useDocuments();
   const upload = useUploadDocument();
+  const deleteDoc = useDeleteDocument();
 
   const [docType, setDocType] = useState<string>("TIMESHEET");
   const fileRef = useRef<HTMLInputElement>(null);
+  const [confirmDoc, setConfirmDoc] = useState<RawDocument | null>(null);
 
   async function handleUpload(e: React.FormEvent) {
     e.preventDefault();
@@ -43,6 +46,14 @@ export default function DocumentsPage() {
     });
 
     if (fileRef.current) fileRef.current.value = "";
+  }
+
+  function handleDelete(doc: RawDocument) {
+    toast.promise(deleteDoc.mutateAsync(doc.DOC_ID), {
+      loading: `Deleting ${doc.DOC_ID}…`,
+      success: `${doc.DOC_ID} deleted`,
+      error: (err) => `Delete failed: ${err}`,
+    });
   }
 
   const columns: ColumnDef<RawDocument>[] = [
@@ -83,13 +94,28 @@ export default function DocumentsPage() {
         return v ? new Date(v).toLocaleString() : "—";
       },
     },
+    {
+      id: "actions",
+      header: "",
+      size: 48,
+      cell: ({ row }) => (
+        <button
+          onClick={() => setConfirmDoc(row.original)}
+          disabled={deleteDoc.isPending}
+          className="text-slate-400 hover:text-red-600 transition-colors"
+          title="Delete document"
+        >
+          <Trash2 className="h-4 w-4" />
+        </button>
+      ),
+    },
   ];
 
   return (
     <div>
       <PageHeader
         title="Documents"
-        description="Upload timesheet and invoice files, then run OCR to extract text."
+        description="Upload timesheet and invoice files."
       />
 
       {/* Upload form */}
@@ -140,6 +166,16 @@ export default function DocumentsPage() {
           searchPlaceholder="Search files…"
         />
       )}
+
+      <ConfirmationDialog
+        open={confirmDoc !== null}
+        onOpenChange={(open) => { if (!open) setConfirmDoc(null); }}
+        title="Delete document?"
+        description={`This will permanently remove "${confirmDoc?.DOC_ID}" from the stage and delete all extracted lines, approvals, and ground truth data associated with it. This cannot be undone.`}
+        confirmLabel="Delete"
+        variant="destructive"
+        onConfirm={() => { if (confirmDoc) handleDelete(confirmDoc); setConfirmDoc(null); }}
+      />
     </div>
   );
 }

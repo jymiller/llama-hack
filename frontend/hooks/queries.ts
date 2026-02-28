@@ -40,6 +40,21 @@ export function useUploadDocument() {
   });
 }
 
+export function useDeleteDocument() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (docId: string) =>
+      fetch(`/api/documents/${docId}`, { method: "DELETE" }).then((r) => {
+        if (!r.ok) return r.json().then((e) => Promise.reject(e.error));
+        return r.json();
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["documents"] });
+      qc.invalidateQueries({ queryKey: ["extraction"] });
+    },
+  });
+}
+
 export function useRunOcr() {
   const qc = useQueryClient();
   return useMutation({
