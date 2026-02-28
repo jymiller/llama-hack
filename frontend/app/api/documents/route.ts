@@ -40,21 +40,22 @@ export async function POST(req: NextRequest) {
     const tmpPath = join(tmpdir(), `${randomUUID()}_${file.name}`);
     await writeFile(tmpPath, buffer);
 
-    const stagePath = `@DOCUMENTS_STAGE/${file.name}`;
+    const stagePath = `@DOCUMENTS_STAGE_SSE/${file.name}`;
 
     try {
-      // Upload to Snowflake stage
-      await runExecute(`PUT 'file://${tmpPath}' @DOCUMENTS_STAGE AUTO_COMPRESS=FALSE OVERWRITE=TRUE`);
+      // Upload to Snowflake stage (SSE encryption required for Cortex)
+      await runExecute(`PUT 'file://${tmpPath}' @DOCUMENTS_STAGE_SSE AUTO_COMPRESS=FALSE OVERWRITE=TRUE`);
     } finally {
       await unlink(tmpPath).catch(() => {});
     }
 
-    // Register in RAW_DOCUMENTS
+    // Upsert RAW_DOCUMENTS — update ingested_ts on re-upload so the timestamp reflects the latest file
     await runExecute(
-      `INSERT INTO RAW_DOCUMENTS (FILE_PATH, DOC_TYPE)
-       SELECT ?, ?
-       WHERE NOT EXISTS (SELECT 1 FROM RAW_DOCUMENTS WHERE FILE_PATH = ?)`,
-      [stagePath, docType, stagePath]
+      `MERGE INTO RAW_DOCUMENTS t
+       USING (SELECT ? AS file_path, ? AS doc_type) s ON t.FILE_PATH = s.file_path
+       WHEN MATCHED THEN UPDATE SET doc_type = s.doc_type, ingested_ts = CURRENT_TIMESTAMP()
+       WHEN NOT MATCHED THEN INSERT (FILE_PATH, DOC_TYPE) VALUES (s.file_path, s.doc_type)`,
+      [stagePath, docType]
     );
 
     const rows = await runQuery<RawDocument>(
