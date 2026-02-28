@@ -17,6 +17,7 @@ import {
   useDocuments,
   useExtractedLines,
   useGroundTruth,
+  useGroundTruthCounts,
   useSaveGroundTruth,
   useMasterProjects,
 } from "@/hooks/queries";
@@ -261,6 +262,7 @@ export default function GroundTruthPage() {
   const { data: docs = [] } = useDocuments();
   const { data: allLines = EMPTY_LINES } = useExtractedLines();
   const { data: masterData } = useMasterProjects();
+  const { data: gtCounts = [] } = useGroundTruthCounts();
 
   const [selectedDocId, setSelectedDocId] = useState<string | null>(null);
   const { data: existing = EMPTY_GT } = useGroundTruth(selectedDocId);
@@ -285,15 +287,15 @@ export default function GroundTruthPage() {
     [allLines]
   );
 
-  // GT row counts per doc (from existing data for selected doc only — we
-  // approximate others by using a map built below if available)
-  const gtCountByDoc = useMemo(() => {
-    const map: Record<string, number> = {};
-    if (selectedDocId && existing.length > 0) {
-      map[selectedDocId] = existing.length;
-    }
-    return map;
-  }, [selectedDocId, existing]);
+  // GT row counts for every doc (from summary endpoint)
+  const gtCountByDoc = useMemo(
+    () =>
+      gtCounts.reduce<Record<string, number>>((acc, r) => {
+        acc[r.DOC_ID] = r.ROW_COUNT;
+        return acc;
+      }, {}),
+    [gtCounts]
+  );
 
   const docLines: ExtractedLine[] = selectedDocId
     ? (linesByDoc[selectedDocId] ?? [])

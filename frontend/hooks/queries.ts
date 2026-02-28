@@ -141,6 +141,14 @@ export function useAccuracy() {
 
 // ── Ground Truth ─────────────────────────────────────────────────────────────
 
+export function useGroundTruthCounts() {
+  return useQuery<{ DOC_ID: string; ROW_COUNT: number }[]>({
+    queryKey: ["ground-truth-counts"],
+    queryFn: () =>
+      fetchJson<{ DOC_ID: string; ROW_COUNT: number }[]>("/api/ground-truth"),
+  });
+}
+
 export function useGroundTruth(docId: string | null) {
   return useQuery<GroundTruthLine[]>({
     queryKey: ["ground-truth", docId],
@@ -169,6 +177,7 @@ export function useSaveGroundTruth() {
       }),
     onSuccess: (_d, { docId }) => {
       qc.invalidateQueries({ queryKey: ["ground-truth", docId] });
+      qc.invalidateQueries({ queryKey: ["ground-truth-counts"] });
       qc.invalidateQueries({ queryKey: ["accuracy"] });
     },
   });
