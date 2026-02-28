@@ -86,10 +86,14 @@ class TimesheetReconciliationCrew:
         
         cursor = self.conn.cursor()
         try:
+            # Cascade-delete existing data so re-runs are idempotent
+            cursor.execute("DELETE FROM LEDGER_APPROVALS WHERE doc_id = %s", (doc_id,))
+            cursor.execute("DELETE FROM VALIDATION_RESULTS WHERE doc_id = %s", (doc_id,))
+            cursor.execute("DELETE FROM EXTRACTED_LINES WHERE doc_id = %s", (doc_id,))
             for i, line in enumerate(extraction_result.get("lines", [])):
                 cursor.execute("""
-                    INSERT INTO EXTRACTED_LINES 
-                    (line_id, doc_id, worker, work_date, project, hours, 
+                    INSERT INTO EXTRACTED_LINES
+                    (line_id, doc_id, worker, work_date, project, hours,
                      extraction_confidence, raw_text_snippet)
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                 """, (
@@ -113,6 +117,11 @@ class TimesheetReconciliationCrew:
         
         cursor = self.conn.cursor()
         try:
+            # Clear existing results so re-runs are idempotent
+            cursor.execute(
+                "DELETE FROM VALIDATION_RESULTS WHERE doc_id = %s",
+                (validation_result["doc_id"],),
+            )
             for i, check in enumerate(validation_result.get("checks", [])):
                 cursor.execute("""
                     INSERT INTO VALIDATION_RESULTS

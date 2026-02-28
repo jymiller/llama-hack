@@ -109,12 +109,11 @@ matched AS (
         e.line_id,
         g.worker AS gt_worker,
         e.worker AS ext_worker,
-        g.work_date AS gt_date,
-        e.work_date AS ext_date,
+        COALESCE(g.work_date, e.work_date) AS work_date,
         g.project AS gt_project,
         e.project AS ext_project,
-        g.hours AS gt_hours,
-        e.hours AS ext_hours,
+        COALESCE(g.hours, 0) AS gt_hours,
+        COALESCE(e.hours, 0) AS ext_hours,
         ABS(COALESCE(e.hours, 0) - COALESCE(g.hours, 0)) AS hours_delta,
         CASE
             WHEN g.worker IS NULL THEN 'EXTRA_EXTRACTED'
@@ -128,7 +127,30 @@ matched AS (
         AND g.work_date = e.work_date
         AND g.project = e.project
 )
-SELECT * FROM matched;
+SELECT
+    doc_id,
+    line_id,
+    gt_worker,
+    ext_worker,
+    work_date,
+    gt_project,
+    ext_project,
+    gt_hours,
+    ext_hours,
+    hours_delta,
+    match_status,
+    SUM(gt_hours) OVER (PARTITION BY doc_id)  AS total_gt_hours,
+    SUM(ext_hours) OVER (PARTITION BY doc_id) AS total_ext_hours,
+    CASE
+        WHEN SUM(gt_hours) OVER (PARTITION BY doc_id) = 0 THEN 0.0
+        ELSE GREATEST(0.0,
+            (1.0 - ABS(SUM(ext_hours) OVER (PARTITION BY doc_id)
+                       - SUM(gt_hours) OVER (PARTITION BY doc_id))
+                   / NULLIF(SUM(gt_hours) OVER (PARTITION BY doc_id), 0)
+            ) * 100.0
+        )
+    END AS hours_accuracy_pct
+FROM matched;
 
 -- 10. TRUSTED_LEDGER view - only approved/corrected lines
 CREATE OR REPLACE VIEW TRUSTED_LEDGER AS
@@ -161,10 +183,6 @@ $$
 DECLARE
     ocr_result TEXT;
 BEGIN
-    -- Insert document record
-    INSERT INTO RAW_DOCUMENTS (doc_id, doc_type, file_path, ocr_status)
-    VALUES (:P_DOC_ID, :P_DOC_TYPE, :P_FILE_PATH, 'PENDING');
-    
     -- Run Cortex PARSE_DOCUMENT for OCR
     SELECT SNOWFLAKE.CORTEX.PARSE_DOCUMENT(
         BUILD_SCOPED_FILE_URL(:P_FILE_PATH),
@@ -316,7 +334,7 @@ Rules:
     SELECT SNOWFLAKE.CORTEX.COMPLETE(
         'claude-3-5-sonnet',
         :extraction_prompt,
-        TO_FILE('@DOCUMENTS_STAGE_UNENC', :filename)
+        TO_FILE('@DOCUMENTS_STAGE', :filename)
     ) INTO llm_response;
 
     -- Strip markdown code fences if present
@@ -426,7 +444,7 @@ Rules:
             SNOWFLAKE.CORTEX.COMPLETE(
                 'claude-3-5-sonnet',
                 :extraction_prompt,
-                TO_FILE('@DOCUMENTS_STAGE_UNENC', REGEXP_REPLACE(d.file_path, '^.*/', ''))
+                TO_FILE('@DOCUMENTS_STAGE', REGEXP_REPLACE(d.file_path, '^.*/', ''))
             ) AS llm_response
         FROM RAW_DOCUMENTS d
     ),
@@ -474,5 +492,206 @@ Rules:
 
     res := (SELECT * FROM multimodal_results ORDER BY doc_id);
     RETURN TABLE(res);
+END;
+$$;
+
+
+-- ============================================================
+-- 16. POPULATE_RECON_SUMMARY - Compute and upsert reconciliation by month
+-- Call with an hourly rate; derives invoice amounts from SUBSUB_INVOICE
+-- and MY_INVOICE extracted hours × rate.
+-- ============================================================
+CREATE OR REPLACE PROCEDURE POPULATE_RECON_SUMMARY(P_HOURLY_RATE FLOAT)
+RETURNS VARCHAR
+LANGUAGE SQL
+AS
+$$
+BEGIN
+    MERGE INTO RECON_SUMMARY t
+    USING (
+        WITH timesheet_hours AS (
+            SELECT
+                TO_VARCHAR(DATE_TRUNC('MONTH', work_date), 'YYYY-MM')          AS period_month,
+                YEAR(work_date)::VARCHAR || '-Q' || QUARTER(work_date)::VARCHAR AS period_quarter,
+                SUM(hours) AS approved_hours
+            FROM TRUSTED_LEDGER
+            GROUP BY 1, 2
+        ),
+        subsub_hours AS (
+            SELECT
+                TO_VARCHAR(DATE_TRUNC('MONTH', e.work_date), 'YYYY-MM') AS period_month,
+                SUM(e.hours) AS invoice_hours
+            FROM EXTRACTED_LINES e
+            JOIN RAW_DOCUMENTS d ON e.doc_id = d.doc_id
+            WHERE d.doc_type = 'SUBSUB_INVOICE'
+            GROUP BY 1
+        ),
+        my_hours AS (
+            SELECT
+                TO_VARCHAR(DATE_TRUNC('MONTH', e.work_date), 'YYYY-MM') AS period_month,
+                SUM(e.hours) AS invoice_hours
+            FROM EXTRACTED_LINES e
+            JOIN RAW_DOCUMENTS d ON e.doc_id = d.doc_id
+            WHERE d.doc_type = 'MY_INVOICE'
+            GROUP BY 1
+        )
+        SELECT
+            t.period_month,
+            t.period_quarter,
+            t.approved_hours,
+            t.approved_hours * :P_HOURLY_RATE                              AS implied_cost,
+            COALESCE(s.invoice_hours, 0) * :P_HOURLY_RATE                  AS invoice_subsub_amount,
+            COALESCE(m.invoice_hours, 0) * :P_HOURLY_RATE                  AS invoice_my_amount,
+            (COALESCE(s.invoice_hours, 0) - t.approved_hours) * :P_HOURLY_RATE AS variance_subsub,
+            (COALESCE(m.invoice_hours, 0) - t.approved_hours) * :P_HOURLY_RATE AS variance_my
+        FROM timesheet_hours t
+        LEFT JOIN subsub_hours s ON t.period_month = s.period_month
+        LEFT JOIN my_hours    m ON t.period_month = m.period_month
+    ) s ON t.period_month = s.period_month
+    WHEN MATCHED THEN UPDATE SET
+        period_quarter        = s.period_quarter,
+        approved_hours        = s.approved_hours,
+        implied_cost          = s.implied_cost,
+        invoice_subsub_amount = s.invoice_subsub_amount,
+        invoice_my_amount     = s.invoice_my_amount,
+        variance_subsub       = s.variance_subsub,
+        variance_my           = s.variance_my
+    WHEN NOT MATCHED THEN INSERT
+        (recon_id, period_month, period_quarter, approved_hours, implied_cost,
+         invoice_subsub_amount, invoice_my_amount, variance_subsub, variance_my)
+    VALUES
+        (UUID_STRING(), s.period_month, s.period_quarter, s.approved_hours, s.implied_cost,
+         s.invoice_subsub_amount, s.invoice_my_amount, s.variance_subsub, s.variance_my);
+
+    RETURN 'SUCCESS: Reconciliation summary populated for '
+        || (SELECT COUNT(*)::VARCHAR FROM RECON_SUMMARY) || ' month(s)';
+EXCEPTION
+    WHEN OTHER THEN
+        RETURN 'ERROR: ' || SQLERRM;
+END;
+$$;
+
+
+-- ============================================================
+-- 17. RUN_VALIDATION - Apply all validation rules to EXTRACTED_LINES
+-- Mirrors the logic in run_validation.py but runs entirely in Snowflake.
+-- Safe to call repeatedly; clears and rebuilds results each time.
+-- ============================================================
+CREATE OR REPLACE PROCEDURE RUN_VALIDATION()
+RETURNS VARCHAR
+LANGUAGE SQL
+AS
+$$
+BEGIN
+    -- Clear previous results (idempotent re-run)
+    DELETE FROM VALIDATION_RESULTS
+    WHERE doc_id IN (SELECT DISTINCT doc_id FROM EXTRACTED_LINES);
+
+    -- ── Document-level checks (one row per doc) ───────────────
+
+    -- WORKER_IDENTIFIABLE
+    INSERT INTO VALIDATION_RESULTS
+        (validation_id, doc_id, rule_name, status, details, computed_value)
+    SELECT
+        UUID_STRING(), doc_id, 'WORKER_IDENTIFIABLE',
+        CASE WHEN COUNT(DISTINCT worker) > 0 THEN 'PASS' ELSE 'FAIL' END,
+        CASE WHEN COUNT(DISTINCT worker) > 0
+             THEN 'Found ' || COUNT(DISTINCT worker)::VARCHAR || ' unique worker(s)'
+             ELSE 'No worker identified' END,
+        COUNT(DISTINCT worker)::VARCHAR
+    FROM EXTRACTED_LINES
+    GROUP BY doc_id;
+
+    -- DATES_PRESENT
+    INSERT INTO VALIDATION_RESULTS
+        (validation_id, doc_id, rule_name, status, details, computed_value)
+    SELECT
+        UUID_STRING(), doc_id, 'DATES_PRESENT',
+        CASE WHEN COUNT(work_date) > 0 THEN 'PASS' ELSE 'FAIL' END,
+        'Found ' || COUNT(work_date)::VARCHAR || ' date entries',
+        COUNT(work_date)::VARCHAR
+    FROM EXTRACTED_LINES
+    GROUP BY doc_id;
+
+    -- TOTAL_HOURS_REASONABLE (PASS ≤60, WARN >60, FAIL =0)
+    INSERT INTO VALIDATION_RESULTS
+        (validation_id, doc_id, rule_name, status, details, computed_value)
+    SELECT
+        UUID_STRING(), doc_id, 'TOTAL_HOURS_REASONABLE',
+        CASE
+            WHEN SUM(hours) > 60 THEN 'WARN'
+            WHEN SUM(hours) > 0  THEN 'PASS'
+            ELSE 'FAIL'
+        END,
+        'Total hours: ' || SUM(hours)::VARCHAR ||
+        CASE WHEN SUM(hours) > 60 THEN '. Exceeds 60 - verify overtime' ELSE '' END,
+        SUM(hours)::VARCHAR
+    FROM EXTRACTED_LINES
+    GROUP BY doc_id;
+
+    -- EXTRACTION_CONFIDENCE (PASS ≥0.7, WARN <0.7)
+    INSERT INTO VALIDATION_RESULTS
+        (validation_id, doc_id, rule_name, status, details, computed_value)
+    SELECT
+        UUID_STRING(), doc_id, 'EXTRACTION_CONFIDENCE',
+        CASE WHEN AVG(extraction_confidence) >= 0.7 THEN 'PASS' ELSE 'WARN' END,
+        'Average confidence: ' || ROUND(AVG(extraction_confidence), 2)::VARCHAR,
+        ROUND(AVG(extraction_confidence), 2)::VARCHAR
+    FROM EXTRACTED_LINES
+    GROUP BY doc_id;
+
+    -- ── Line-level checks (one row per extracted line) ────────
+
+    -- VALID_DATE_FORMAT
+    INSERT INTO VALIDATION_RESULTS
+        (validation_id, doc_id, line_id, rule_name, status, details)
+    SELECT
+        UUID_STRING(), doc_id, line_id, 'VALID_DATE_FORMAT',
+        CASE WHEN work_date IS NOT NULL THEN 'PASS' ELSE 'FAIL' END,
+        CASE WHEN work_date IS NOT NULL
+             THEN 'Date ' || work_date::VARCHAR || ' is valid'
+             ELSE 'Date is missing or invalid' END
+    FROM EXTRACTED_LINES;
+
+    -- HOURS_IN_RANGE (PASS 0-24, WARN >24, FAIL null)
+    INSERT INTO VALIDATION_RESULTS
+        (validation_id, doc_id, line_id, rule_name, status, details, computed_value)
+    SELECT
+        UUID_STRING(), doc_id, line_id, 'HOURS_IN_RANGE',
+        CASE
+            WHEN hours IS NULL       THEN 'FAIL'
+            WHEN hours > 24          THEN 'WARN'
+            WHEN hours >= 0          THEN 'PASS'
+            ELSE 'FAIL'
+        END,
+        'Hours: ' || COALESCE(hours::VARCHAR, 'NULL') ||
+        CASE
+            WHEN hours IS NULL THEN '. Missing'
+            WHEN hours > 24    THEN '. Exceeds 24 - verify'
+            ELSE '. Valid range 0-24'
+        END,
+        COALESCE(hours::VARCHAR, 'NULL')
+    FROM EXTRACTED_LINES;
+
+    -- REQUIRED_FIELDS_PRESENT
+    INSERT INTO VALIDATION_RESULTS
+        (validation_id, doc_id, line_id, rule_name, status, details)
+    SELECT
+        UUID_STRING(), doc_id, line_id, 'REQUIRED_FIELDS_PRESENT',
+        CASE WHEN worker IS NOT NULL AND work_date IS NOT NULL AND hours IS NOT NULL
+             THEN 'PASS' ELSE 'FAIL' END,
+        CASE WHEN worker IS NOT NULL AND work_date IS NOT NULL AND hours IS NOT NULL
+             THEN 'All required fields present'
+             ELSE 'Missing required field(s)' END
+    FROM EXTRACTED_LINES;
+
+    RETURN 'SUCCESS: Validated '
+        || (SELECT COUNT(DISTINCT doc_id)::VARCHAR FROM VALIDATION_RESULTS)
+        || ' document(s), '
+        || (SELECT COUNT(*)::VARCHAR FROM VALIDATION_RESULTS)
+        || ' total checks';
+EXCEPTION
+    WHEN OTHER THEN
+        RETURN 'ERROR: ' || SQLERRM;
 END;
 $$;

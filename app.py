@@ -224,6 +224,15 @@ elif page == "2. Extraction & Validation":
 
         # Validation results
         st.subheader("Validation Results")
+        if st.button("Run Validation", type="primary"):
+            with st.spinner("Running validation checks..."):
+                result_df = run_query("CALL RUN_VALIDATION()")
+                status = result_df.iloc[0][0] if not result_df.empty else "No result"
+            if "SUCCESS" in str(status):
+                st.success(status)
+            else:
+                st.error(status)
+            st.rerun()
         val_df = run_query("""
             SELECT doc_id, rule_name, status, details, computed_value
             FROM VALIDATION_RESULTS
@@ -708,6 +717,20 @@ elif page == "6. Reconciliation":
         # Recon summary from table
         st.divider()
         st.subheader("Reconciliation Summary")
+        col_rate, col_run = st.columns([2, 1])
+        with col_rate:
+            hourly_rate = st.number_input("Hourly Rate ($/hr)", min_value=0.0, value=150.0, step=10.0)
+        with col_run:
+            st.markdown("<br>", unsafe_allow_html=True)
+            if st.button("Populate Reconciliation Summary", type="primary"):
+                with st.spinner("Running reconciliation..."):
+                    result_df = run_query("CALL POPULATE_RECON_SUMMARY(%s)", [hourly_rate])
+                    status = result_df.iloc[0][0] if not result_df.empty else "No result"
+                if "SUCCESS" in str(status):
+                    st.success(status)
+                else:
+                    st.error(status)
+                st.rerun()
         recon_df = run_query("SELECT * FROM RECON_SUMMARY ORDER BY period_month")
         if not recon_df.empty:
             st.dataframe(recon_df, use_container_width=True)
@@ -719,6 +742,15 @@ elif page == "6. Reconciliation":
                     st.warning(f"Sub-sub variance for {row['PERIOD_MONTH']}: ${var_sub:,.2f}")
                 if var_my and abs(var_my) > 0:
                     st.warning(f"Agency variance for {row['PERIOD_MONTH']}: ${var_my:,.2f}")
+
+            st.subheader("Quarterly Summary")
+            quarterly = recon_df.groupby("PERIOD_QUARTER").agg(
+                approved_hours=("APPROVED_HOURS", "sum"),
+                implied_cost=("IMPLIED_COST", "sum"),
+                invoice_subsub_amount=("INVOICE_SUBSUB_AMOUNT", "sum"),
+                invoice_my_amount=("INVOICE_MY_AMOUNT", "sum"),
+            ).reset_index()
+            st.dataframe(quarterly, use_container_width=True)
         else:
             st.info("No reconciliation summary data yet. Run the reconciliation pipeline to populate.")
 
