@@ -5,7 +5,6 @@ import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import {
   FileText,
-  Cpu,
   CheckSquare,
   BarChart2,
   ThumbsUp,
@@ -15,7 +14,6 @@ import {
 
 const NAV_ITEMS = [
   { href: "/documents", label: "Documents", icon: FileText },
-  { href: "/extraction", label: "Extraction", icon: Cpu },
   { href: "/ground-truth", label: "Ground Truth", icon: CheckSquare },
   { href: "/master-data", label: "Master Data", icon: BookMarked },
   { href: "/accuracy", label: "Accuracy", icon: BarChart2 },
