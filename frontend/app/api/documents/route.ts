@@ -37,14 +37,15 @@ export async function POST(req: NextRequest) {
 
     const bytes = await file.arrayBuffer();
     const buffer = Buffer.from(bytes);
-    const tmpPath = join(tmpdir(), `${randomUUID()}_${file.name}`);
+    // Use plain filename (no UUID) so the stage filename matches what we store in FILE_PATH
+    const tmpPath = join(tmpdir(), file.name);
     await writeFile(tmpPath, buffer);
 
-    const stagePath = `@DOCUMENTS_STAGE_SSE/${file.name}`;
+    const stagePath = `@RECONCILIATION.PUBLIC.DOCUMENTS_STAGE_SSE/${file.name}`;
 
     try {
       // Upload to Snowflake stage (SSE encryption required for Cortex)
-      await runExecute(`PUT 'file://${tmpPath}' @DOCUMENTS_STAGE_SSE AUTO_COMPRESS=FALSE OVERWRITE=TRUE`);
+      await runExecute(`PUT 'file://${tmpPath}' @RECONCILIATION.PUBLIC.DOCUMENTS_STAGE_SSE AUTO_COMPRESS=FALSE OVERWRITE=TRUE`);
     } finally {
       await unlink(tmpPath).catch(() => {});
     }
