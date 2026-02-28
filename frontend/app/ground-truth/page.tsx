@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { toast } from "sonner";
-import { Save, Plus, Trash2, CheckSquare, Square, ZoomIn, ZoomOut, Maximize2 } from "lucide-react";
+import { Save, Plus, Trash2, CheckSquare, Square, ZoomIn, ZoomOut, Maximize2, RotateCcw } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -332,7 +332,30 @@ export default function GroundTruthPage() {
     return best;
   }, [docLines]);
 
-  // Initialize rows when doc changes or data arrives
+  // Build rows from extracted lines only (no GT override)
+  const buildRowsFromExtraction = useCallback(() => {
+    const rowMap = new Map<string, GTRow>();
+    for (const line of docLines) {
+      const code = line.PROJECT_CODE ?? line.PROJECT ?? "";
+      if (!code) continue;
+      const canonical = canonicalProjects.find((p) => p.PROJECT_CODE === code);
+      if (!rowMap.has(code)) {
+        rowMap.set(code, {
+          id: newRowId(),
+          projectCode: code,
+          projectName: canonical?.PROJECT_NAME ?? line.PROJECT ?? "",
+          worker: line.WORKER ?? docWorker,
+          hours: {},
+        });
+      }
+      if (line.WORK_DATE && line.HOURS != null) {
+        rowMap.get(code)!.hours[line.WORK_DATE] = String(line.HOURS);
+      }
+    }
+    return [...rowMap.values()];
+  }, [docLines, canonicalProjects, docWorker]);
+
+  // Initialize rows when doc changes or saved GT arrives
   useEffect(() => {
     if (!selectedDocId) {
       setRows([]);
@@ -345,9 +368,7 @@ export default function GroundTruthPage() {
     for (const line of docLines) {
       const code = line.PROJECT_CODE ?? line.PROJECT ?? "";
       if (!code) continue;
-      const canonical = canonicalProjects.find(
-        (p) => p.PROJECT_CODE === code
-      );
+      const canonical = canonicalProjects.find((p) => p.PROJECT_CODE === code);
       if (!rowMap.has(code)) {
         rowMap.set(code, {
           id: newRowId(),
@@ -366,9 +387,7 @@ export default function GroundTruthPage() {
     for (const gt of existing) {
       const code = gt.PROJECT_CODE ?? gt.PROJECT ?? "";
       if (!code) continue;
-      const canonical = canonicalProjects.find(
-        (p) => p.PROJECT_CODE === code
-      );
+      const canonical = canonicalProjects.find((p) => p.PROJECT_CODE === code);
       if (!rowMap.has(code)) {
         rowMap.set(code, {
           id: newRowId(),
@@ -522,12 +541,22 @@ export default function GroundTruthPage() {
                 </span>
               )}
             </div>
-            <button
-              onClick={() => setSelectedDocId(null)}
-              className="text-slate-400 hover:text-slate-600 text-sm"
-            >
-              ✕
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setRows(buildRowsFromExtraction())}
+                className="flex items-center gap-1 text-xs text-slate-500 hover:text-amber-600 transition-colors px-2 py-1 rounded hover:bg-amber-50"
+                title="Discard saved GT and reset grid to AI-extracted values"
+              >
+                <RotateCcw className="h-3.5 w-3.5" />
+                Reset to extraction
+              </button>
+              <button
+                onClick={() => setSelectedDocId(null)}
+                className="text-slate-400 hover:text-slate-600 text-sm"
+              >
+                ✕
+              </button>
+            </div>
           </div>
 
           {/* Zoomable image — full width above the grid */}
