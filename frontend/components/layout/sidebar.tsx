@@ -6,7 +6,6 @@ import { cn } from "@/lib/utils";
 import {
   FileText,
   CheckSquare,
-  BarChart2,
   ThumbsUp,
   DollarSign,
   BookMarked,
@@ -16,7 +15,6 @@ const NAV_ITEMS = [
   { href: "/documents", label: "Documents", icon: FileText },
   { href: "/ground-truth", label: "Ground Truth", icon: CheckSquare },
   { href: "/master-data", label: "Master Data", icon: BookMarked },
-  { href: "/accuracy", label: "Accuracy", icon: BarChart2 },
   { href: "/approvals", label: "Approvals", icon: ThumbsUp },
   { href: "/reconciliation", label: "Reconciliation", icon: DollarSign },
 ];
