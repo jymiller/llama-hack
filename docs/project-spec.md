@@ -233,7 +233,7 @@ Business validation:
 
 ```
 Approved Hours × Rate
-≈ Invoice AmountZZ
+≈ Invoice Amount
 ```
 
 Performed for:
@@ -429,6 +429,3 @@ It automates:
 The product demonstrated is a:
 
 **Time Reconciliation Agent powered by Snowflake and autonomous agents.**
-
----
-
