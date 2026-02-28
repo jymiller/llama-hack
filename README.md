@@ -1,6 +1,6 @@
 # Timesheet Reconciliation System
 
-A hackathon project that converts timesheet screenshots and invoice images into a trusted, validated financial ledger — automatically. Built on **Snowflake Cortex**, **CrewAI**, and **Streamlit**.
+A hackathon project that converts timesheet screenshots and invoice images into a trusted, validated financial ledger — automatically. Built on **Snowflake Cortex**, **Claude AI**, and a **Next.js** analyst app.
 
 ---
 
@@ -23,59 +23,51 @@ flowchart TD
     A([Prime Contractor<br>Timesheet Screenshots]) --> C
     B([Agency Invoice<br>Images]) --> C
 
-    C[Upload to<br>DOCUMENTS_STAGE_SSE<br><i>Snowflake Internal SSE Stage</i>]
+    C["Documents Page<br>Upload to DOCUMENTS_STAGE_SSE<br><i>Snowflake Internal SSE Stage</i>"]
 
-    C --> D{Extraction Method}
+    C --> E["Extract All<br>EXTRACT_ALL_MULTIMODAL<br>(Snowflake Stored Proc)"]
 
-    D -->|Primary<br>Multimodal| E["EXTRACT_DOCUMENT_MULTIMODAL<br>(Snowflake Stored Procedure)"]
-    D -->|Legacy<br>OCR + AI| F["PROCESS_DOCUMENT_OCR<br>(Snowflake Cortex PARSE_DOCUMENT)"]
+    E --> G["SNOWFLAKE.CORTEX.COMPLETE<br>claude-3-5-sonnet<br>image → structured JSON"]
 
-    E --> G["SNOWFLAKE.CORTEX.COMPLETE<br>claude-3-5-sonnet<br>with image input"]
-    F --> H["CrewAI Extraction Agent<br>(OCR text → structured rows)"]
+    G --> I[("RAW_DOCUMENTS<br>+ EXTRACTED_LINES<br>worker · date · project<br>project_code · hours · confidence")]
 
-    G --> I[(RAW_DOCUMENTS<br>+ EXTRACTED_LINES<br>worker · date · project<br>hours · confidence)]
-    H --> I
+    %% ── Master Data ────────────────────────────────────────
+    I -->|"Sync from Extraction"| MD["SYNC_CURATED_MASTER"]
 
-    %% ── Master Data (Curated) ──────────────────────────────
-    I -->|"SYNC_CURATED_MASTER<br>(after each extraction)"| MD["Master Data Sync"]
+    MD --> CP[("CURATED_PROJECTS<br>project_code · project_name<br>confirmed · is_active")]
+    MD --> CW[("CURATED_WORKERS<br>worker_key · display_name<br>confirmed · is_active")]
 
-    MD --> CP[("CURATED_PROJECTS ✦<br>project_code · project_name<br>confirmed · curation_source<br>curation_note")]
-    MD --> CW[("CURATED_WORKERS ✦<br>worker_key · display_name<br>confirmed · curation_source<br>curation_note")]
+    CP --> FS["PROJECT_CODE_SUSPECTS view<br>EDITDISTANCE ≤ 3<br>flags OCR misreads"]
+    CW --> WS["WORKER_NAME_SUSPECTS view<br>EDITDISTANCE ≤ 3"]
 
-    CP --> FS["PROJECT_CODE_SUSPECTS view<br>EDITDISTANCE ≤ 3 vs confirmed codes<br>flags likely OCR misreads"]
-    CW --> WS["WORKER_NAME_SUSPECTS view<br>EDITDISTANCE ≤ 3 vs confirmed names"]
-
-    FS --> MDPage["Master Data Page<br>Pending review queue<br>Fuzzy-match alerts<br>Confirm / Edit"]
+    FS --> MDPage["Master Data Page<br>Review suspects · Confirm codes<br>Create Project Code Merges<br>Apply merges to EXTRACTED_LINES"]
     WS --> MDPage
+    MDPage --> PCM[("PROJECT_CODE_MERGES<br>source_code → target_code<br>merge_reason · merged_at")]
+    PCM -->|"APPLY_PROJECT_MERGES<br>hard-write corrections"| I
     MDPage --> CP
     MDPage --> CW
+    PCM --> PROV["PROJECT_MERGE_PROVENANCE view<br>canonical codes + merged sources"]
 
-    %% ── Validation ─────────────────────────────────────────
-    I --> J["Automated Validation<br>(RUN_VALIDATION proc)"]
-    J --> K{Validation Checks}
-    K -->|Document-level| K1["✓ Worker identifiable<br>✓ Dates present<br>✓ Avg confidence ≥ 0.7<br>✓ Total hours ≤ 60/week"]
-    K -->|Line-level| K2["✓ Date format YYYY-MM-DD<br>✓ Hours 0–24<br>✓ Required fields present"]
-    K -->|Cross-artifact| K3["✓ Approved hrs × rate<br>≈ Invoice amount ±1%"]
-    K1 & K2 & K3 --> L[(VALIDATION_RESULTS<br>PASS · FAIL · WARN)]
+    %% ── Ground Truth ───────────────────────────────────────
+    I --> GT["Ground Truth Page<br>Thumbnail picker · Zoom/pan viewer<br>Canonical project select<br>Hours per day entry (SAT–FRI)"]
+    GT --> Q[("CURATED_GROUND_TRUTH<br>analyst-verified hours")]
 
-    %% ── Analyst Review ─────────────────────────────────────
-    L --> M["Next.js App<br>(Analyst Review)"]
+    %% ── Accuracy ───────────────────────────────────────────
+    I --> ACC["Accuracy Page<br>Extracted vs Ground Truth<br>MATCH · DISCREPANCY · MISSING · EXTRA"]
+    Q --> ACC
 
-    M --> N["Ground Truth Entry<br>Weekly grid side-by-side<br>with timesheet image"]
-    M --> O["Accuracy Comparison<br>Extracted vs Ground Truth<br>day-by-day diff"]
-    M --> P["Approval Workflow<br>APPROVE · REJECT · CORRECT<br>per extracted line"]
+    %% ── Approvals ──────────────────────────────────────────
+    I --> APPR["Approvals Page<br>APPROVE · REJECT · CORRECT<br>per extracted line · bulk approve"]
+    APPR --> R[("APPROVED_LINES<br>decision · corrected_hours<br>corrected_date · corrected_project")]
 
-    N --> Q[("CURATED_GROUND_TRUTH ✦<br>analyst-entered hours<br>+ curation_note")]
-    P --> R[("APPROVED_LINES ✦<br>decision · corrected_*<br>reviewer")]
+    R --> T["TRUSTED_LEDGER view<br>Approved + corrected lines<br>project_code resolved via merges"]
 
-    Q --> S["EXTRACTION_ACCURACY view<br>Matched · Discrepancy<br>Missing · Extra"]
-    R --> T["TRUSTED_LEDGER view<br>Approved + corrected lines<br>with corrections applied"]
-
-    T --> U["Reconciliation Page<br>Monthly/Quarterly Summary"]
-    U --> V[(RECON_SUMMARY<br>Approved hrs · Implied cost<br>Invoice amounts · Variances)]
+    %% ── Reconciliation ─────────────────────────────────────
+    T --> RECON["Reconciliation Page<br>Monthly/Quarterly Summary"]
+    RECON --> V[("RECON_SUMMARY<br>Approved hrs · Implied cost<br>Invoice amounts · Variances")]
 
     V --> W{Variance<br>Within ±1%?}
-    W -->|Yes| X([✅ Reconciliation<br>Complete])
+    W -->|Yes| X([✅ Reconciliation Complete])
     W -->|No| Y([⚠️ Exception Report])
 
     style G fill:#4A90D9,color:#fff
@@ -87,6 +79,8 @@ flowchart TD
     style CW fill:#8E44AD,color:#fff
     style MD fill:#7D3C98,color:#fff
     style MDPage fill:#9B59B6,color:#fff
+    style PCM fill:#6C3483,color:#fff
+    style PROV fill:#5B2C6F,color:#fff
     style Q fill:#6C3483,color:#fff
     style R fill:#6C3483,color:#fff
 ```
@@ -99,13 +93,13 @@ flowchart TD
 
 | Layer | Technology | Role |
 |---|---|---|
-| **Data Store** | Snowflake (`RECONCILIATION.PUBLIC`) | Tables, views, stored procedures, stage |
+| **Data Store** | Snowflake (`RECONCILIATION.PUBLIC`) | Tables, views, stored procedures, SSE stage |
 | **AI Extraction** | Snowflake Cortex (`CORTEX.COMPLETE`) | Sends images to Claude 3.5 Sonnet for multimodal extraction |
-| **OCR Fallback** | Snowflake Cortex (`CORTEX.PARSE_DOCUMENT`) | Text-only OCR when multimodal is unavailable |
-| **Agent Orchestration** | CrewAI | Extraction, validation, and ground truth comparison agents |
-| **Frontend** | Streamlit | 6-page analyst review app |
-| **Language** | Python 3.11+ | All pipeline scripts and the web app |
-| **Notifications** | Composio | Gmail exception alerts when variances exceed tolerance |
+| **Frontend** | Next.js 16 (App Router) + TypeScript | 6-page analyst review app at `localhost:3000` |
+| **UI** | Tailwind CSS + shadcn/ui + TanStack Query v5 | Component library, data fetching, optimistic updates |
+| **OCR Fallback** | Snowflake Cortex (`CORTEX.PARSE_DOCUMENT`) | Text-only OCR (legacy path, unused in current frontend) |
+| **Agent Orchestration** | CrewAI | Legacy extraction + validation agents (Python scripts) |
+| **Language** | Python 3.11+ / TypeScript | Python pipeline scripts; TypeScript Next.js app |
 
 ---
 
@@ -160,16 +154,15 @@ When multimodal is unavailable, `PROCESS_DOCUMENT_OCR` runs `SNOWFLAKE.CORTEX.PA
 
 ---
 
-### Analyst Review (Streamlit App)
+### Analyst Review (Next.js App)
 
-`app.py` is a 6-page Streamlit application. Pages are navigated from the sidebar. All data reads and writes go through `run_query()` / `run_execute()`, which use a cached Snowflake connection loaded from `~/.snowflake/connections.toml` (connection name: `hack`).
+`frontend/` is a Next.js 16 App Router application. All data reads and writes go through typed API routes (`frontend/app/api/`) backed by `runQuery()` / `runExecute()` in `lib/snowflake.ts`. Run with `cd frontend && npm run dev`.
 
 | Page | Purpose |
 |---|---|
-| **Documents** | Upload images to Snowflake stage, trigger OCR, preview raw OCR text |
-| **Extraction** | Re-extract individual docs via multimodal, view extracted lines and validation results, monitor pipeline status |
-| **Ground Truth** | Side-by-side view of the original image + an editable weekly grid (Sat–Fri). Analyst enters or corrects hours per project per day. Saved to `CURATED_GROUND_TRUTH`. |
-| **Master Data** | Curated project code and worker master lists. Unconfirmed entries (auto-populated after extraction) appear in a review queue. Fuzzy-match suspects (edit-distance ≤ 3 to a confirmed code) are highlighted with the `curation_note` explaining the likely misread. Calls `SYNC_CURATED_MASTER` on demand. |
+| **Documents** | Upload images to Snowflake SSE stage, per-card extract (▶) or Extract All, delete with confirmation. Click any thumbnail to open the inline detail panel (image + extracted lines table). |
+| **Ground Truth** | Thumbnail picker (green badge = GT saved, amber = extracted, grey = none). Click a doc to open: zoom/pan image viewer (defaults to bottom-third) above an editable SAT–FRI hours grid. Project rows use a canonical `CURATED_PROJECTS` Select dropdown, pre-filled from extraction. Add/remove rows freely. |
+| **Master Data** | Four tabs: **Projects** (confirm/edit canonical codes), **Workers** (confirm/edit workers), **Merges** (create source→target project code merges, apply corrections to `EXTRACTED_LINES`), **Provenance** (audit trail of all merges grouped by canonical code). Status banner guides the analyst step-by-step. |
 | **Accuracy** | Color-coded day-level diff between AI-extracted and ground truth hours. Shows MATCH / DISCREPANCY / MISSING / EXTRA per row. |
 | **Approvals** | Per-line APPROVE / REJECT / CORRECT decisions. Bulk approve available. Corrections capture replacement hours, date, and project. Results go into `APPROVED_LINES`. |
 | **Reconciliation** | Monthly/quarterly aggregations from `TRUSTED_LEDGER`, variance warnings vs. `RECON_SUMMARY`. |
@@ -300,17 +293,17 @@ SNOWFLAKE_WAREHOUSE=DEFAULT_WH
 ### 4. Run
 
 ```bash
-# Streamlit app (full workflow)
-streamlit run app.py
+# Next.js analyst app (primary UI) → http://localhost:3000
+cd frontend && npm install && npm run dev
 
 # Standalone: multimodal extraction on all staged documents
 python run_extraction_cortex.py
 
-# Standalone: legacy CrewAI extraction on hardcoded OCR samples
-python run_extraction.py
-
 # Standalone: validation of EXTRACTED_LINES
 python run_validation.py
+
+# Legacy Streamlit app (superseded by Next.js frontend)
+streamlit run app.py
 ```
 
 ---
@@ -319,18 +312,31 @@ python run_validation.py
 
 ```
 hack/
-├── app.py                      # 6-page Streamlit app
-├── crew.py                     # TimesheetReconciliationCrew orchestrator
-├── cortex_llm.py               # Custom litellm wrapper for Snowflake Cortex
-├── run_extraction_cortex.py    # Multimodal extraction script (preferred)
-├── run_extraction.py           # Legacy CrewAI extraction script
-├── run_validation.py           # Validation pipeline script
-├── requirements.txt
 ├── sql/
-│   └── setup.sql               # Full Snowflake DDL + stored procedures
+│   └── setup.sql                   # Full Snowflake DDL + stored procedures + views
+├── frontend/                       # Next.js 16 analyst app (primary UI)
+│   ├── app/
+│   │   ├── documents/page.tsx      # Upload + extract + thumbnail grid
+│   │   ├── ground-truth/page.tsx   # GT entry with zoom/pan viewer + canonical project select
+│   │   ├── master-data/page.tsx    # Projects · Workers · Merges · Provenance tabs
+│   │   ├── accuracy/page.tsx       # Extracted vs GT diff
+│   │   ├── approvals/page.tsx      # Per-line approve/reject/correct
+│   │   ├── reconciliation/page.tsx # Monthly summary + variance check
+│   │   └── api/                    # 11 typed Next.js API routes → Snowflake
+│   ├── hooks/queries.ts            # All TanStack Query hooks
+│   ├── lib/
+│   │   ├── snowflake.ts            # Singleton Snowflake connection
+│   │   └── types.ts                # TypeScript interfaces for all DB tables/views
+│   └── components/                 # PageHeader, MetricCard, ConfirmationDialog, etc.
+├── app.py                          # Legacy 6-page Streamlit app
+├── crew.py                         # TimesheetReconciliationCrew orchestrator (legacy)
+├── cortex_llm.py                   # Custom litellm wrapper for Snowflake Cortex (legacy)
+├── run_extraction_cortex.py        # Multimodal extraction script
+├── run_extraction.py               # Legacy CrewAI extraction script
+├── run_validation.py               # Validation pipeline script
+├── requirements.txt
 └── agents/
-    ├── __init__.py
-    ├── extraction_agent.py     # CrewAI agent: OCR text → ExtractionResult
-    ├── validation_agent.py     # CrewAI agent: ValidationResult + ReconciliationResult
-    └── ground_truth_agent.py   # CrewAI agent: AccuracyReport vs ground truth
+    ├── extraction_agent.py         # CrewAI agent: OCR text → ExtractionResult (legacy)
+    ├── validation_agent.py         # CrewAI agent: ValidationResult (legacy)
+    └── ground_truth_agent.py       # CrewAI agent: AccuracyReport (legacy)
 ```
