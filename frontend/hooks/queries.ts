@@ -12,7 +12,6 @@ import type {
   ExtractedLine,
   ValidationResult,
   PipelineStatus,
-  AccuracyRow,
   GroundTruthLine,
   ApprovalLineRow,
   TrustedLedgerRow,
@@ -130,14 +129,6 @@ export function useRunValidation() {
   });
 }
 
-// ── Accuracy ─────────────────────────────────────────────────────────────────
-
-export function useAccuracy() {
-  return useQuery<AccuracyRow[]>({
-    queryKey: ["accuracy"],
-    queryFn: () => fetchJson<AccuracyRow[]>("/api/accuracy"),
-  });
-}
 
 // ── Ground Truth ─────────────────────────────────────────────────────────────
 

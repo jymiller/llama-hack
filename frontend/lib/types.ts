@@ -57,16 +57,6 @@ export interface ReconSummary {
   CREATED_AT: string;
 }
 
-export interface AccuracyRow {
-  DOC_ID: string;
-  WORKER: string | null;
-  WORK_DATE: string | null;
-  EXTRACTED_HOURS: number | null;
-  GT_HOURS: number | null;
-  HOURS_DELTA: number | null;
-  EXTRACTION_CONFIDENCE: number | null;
-}
-
 export interface GroundTruthLine {
   GT_ID: string;
   DOC_ID: string;
