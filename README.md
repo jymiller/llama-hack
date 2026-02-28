@@ -20,50 +20,50 @@ This system eliminates that gap by:
 
 ```mermaid
 flowchart TD
-    A([Prime Contractor\nTimesheet Screenshots]) --> B
-    B([Agency Invoice\nImages]) --> C
+    A([Prime Contractor<br>Timesheet Screenshots]) --> B
+    B([Agency Invoice<br>Images]) --> C
     A --> C
 
-    C[Upload to\nSnowflake Stage]
+    C[Upload to<br>Snowflake Stage]
 
     C --> D{Extraction Method}
 
-    D -->|Primary\nMultimodal| E["EXTRACT_DOCUMENT_MULTIMODAL\n(Snowflake Stored Procedure)"]
-    D -->|Legacy\nOCR + AI| F["PROCESS_DOCUMENT_OCR\n(Snowflake Cortex PARSE_DOCUMENT)"]
+    D -->|Primary<br>Multimodal| E["EXTRACT_DOCUMENT_MULTIMODAL<br>(Snowflake Stored Procedure)"]
+    D -->|Legacy<br>OCR + AI| F["PROCESS_DOCUMENT_OCR<br>(Snowflake Cortex PARSE_DOCUMENT)"]
 
-    E --> G["SNOWFLAKE.CORTEX.COMPLETE\nclaude-3-5-sonnet\nwith image input"]
-    F --> H["CrewAI Extraction Agent\n(OCR text → structured rows)"]
+    E --> G["SNOWFLAKE.CORTEX.COMPLETE<br>claude-3-5-sonnet<br>with image input"]
+    F --> H["CrewAI Extraction Agent<br>(OCR text → structured rows)"]
 
-    G --> I[(EXTRACTED_LINES\nworker · date · project\nhours · confidence)]
+    G --> I[(EXTRACTED_LINES<br>worker · date · project<br>hours · confidence)]
     H --> I
 
-    I --> J["Automated Validation\n(run_validation.py or CrewAI)"]
+    I --> J["Automated Validation<br>(run_validation.py or CrewAI)"]
 
-    J --> K{Validation\nChecks}
-    K -->|Document-level| K1["✓ Worker identifiable\n✓ Dates present\n✓ Avg confidence ≥ 0.7\n✓ Total hours ≤ 60/week"]
-    K -->|Line-level| K2["✓ Date format YYYY-MM-DD\n✓ Hours 0–24\n✓ Required fields present"]
-    K -->|Cross-artifact| K3["✓ Approved hrs × rate\n≈ Invoice amount ±1%"]
+    J --> K{Validation<br>Checks}
+    K -->|Document-level| K1["✓ Worker identifiable<br>✓ Dates present<br>✓ Avg confidence ≥ 0.7<br>✓ Total hours ≤ 60/week"]
+    K -->|Line-level| K2["✓ Date format YYYY-MM-DD<br>✓ Hours 0–24<br>✓ Required fields present"]
+    K -->|Cross-artifact| K3["✓ Approved hrs × rate<br>≈ Invoice amount ±1%"]
 
-    K1 & K2 & K3 --> L[(VALIDATION_RESULTS\nPASS · FAIL · WARN)]
+    K1 & K2 & K3 --> L[(VALIDATION_RESULTS<br>PASS · FAIL · WARN)]
 
-    L --> M["Streamlit App\n(Analyst Review)"]
+    L --> M["Streamlit App<br>(Analyst Review)"]
 
-    M --> N["Page 3: Ground Truth Entry\nWeekly spreadsheet grid\nside-by-side with image"]
-    M --> O["Page 4: Accuracy Comparison\nExtracted vs Ground Truth\nday-by-day diff"]
-    M --> P["Page 5: Approval Workflow\nAPPROVE · REJECT · CORRECT\nper extracted line"]
+    M --> N["Page 3: Ground Truth Entry<br>Weekly spreadsheet grid<br>side-by-side with image"]
+    M --> O["Page 4: Accuracy Comparison<br>Extracted vs Ground Truth<br>day-by-day diff"]
+    M --> P["Page 5: Approval Workflow<br>APPROVE · REJECT · CORRECT<br>per extracted line"]
 
     N --> Q[(GROUND_TRUTH_LINES)]
     P --> R[(LEDGER_APPROVALS)]
 
-    Q --> S["EXTRACTION_ACCURACY view\nMatched · Discrepancy\nMissing · Extra"]
-    R --> T["TRUSTED_LEDGER view\nApproved + corrected lines\nwith corrections applied"]
+    Q --> S["EXTRACTION_ACCURACY view<br>Matched · Discrepancy<br>Missing · Extra"]
+    R --> T["TRUSTED_LEDGER view<br>Approved + corrected lines<br>with corrections applied"]
 
-    T --> U["Page 6: Reconciliation\nMonthly/Quarterly Summary"]
-    U --> V[(RECON_SUMMARY\nApproved hrs · Implied cost\nInvoice amounts · Variances)]
+    T --> U["Page 6: Reconciliation<br>Monthly/Quarterly Summary"]
+    U --> V[(RECON_SUMMARY<br>Approved hrs · Implied cost<br>Invoice amounts · Variances)]
 
-    V --> W{Variance\nWithin ±1%?}
-    W -->|Yes| X([✅ Reconciliation\nComplete])
-    W -->|No| Y([⚠️ Exception Report\nvia Composio/Gmail])
+    V --> W{Variance<br>Within ±1%?}
+    W -->|Yes| X([✅ Reconciliation<br>Complete])
+    W -->|No| Y([⚠️ Exception Report<br>via Composio/Gmail])
 
     style G fill:#4A90D9,color:#fff
     style E fill:#29B5E8,color:#fff
