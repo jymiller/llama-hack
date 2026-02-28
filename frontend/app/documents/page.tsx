@@ -4,7 +4,6 @@ import { useState, useRef } from "react";
 import { toast } from "sonner";
 import { Upload, Play, Cpu, CheckCircle, Circle, Trash2, RefreshCw, FileText } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
-import { MetricCard } from "@/components/metric-card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ConfirmationDialog } from "@/components/confirmation-dialog";
@@ -206,24 +205,19 @@ export default function DocumentsPage() {
         }
       />
 
-      {/* Metrics */}
-      <div className="grid grid-cols-2 gap-4 mb-6">
-        <MetricCard
-          title="Documents"
-          value={`${extractedDocs.length} / ${docs.length}`}
-          description={extractedDocs.length === docs.length && docs.length > 0 ? "All extracted" : `${docs.length - extractedDocs.length} pending`}
-          deltaPositive={extractedDocs.length === docs.length && docs.length > 0}
-        />
-        <MetricCard title="Extracted Lines" value={lines.length} />
-      </div>
+      {/* Compact stat + upload bar */}
+      <div className="flex items-center gap-4 mb-6 px-4 py-3 border rounded-lg bg-muted/30">
+        {/* Doc count stat */}
+        <div className="shrink-0 pr-4 border-r border-slate-200">
+          <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Documents</p>
+          <p className="text-xl font-bold leading-tight">{extractedDocs.length} / {docs.length}</p>
+          <p className={`text-[10px] ${extractedDocs.length === docs.length && docs.length > 0 ? "text-green-600" : "text-amber-600"}`}>
+            {extractedDocs.length === docs.length && docs.length > 0 ? "All extracted" : `${docs.length - extractedDocs.length} pending`}
+          </p>
+        </div>
 
-      {/* Upload form */}
-      <form
-        onSubmit={handleUpload}
-        className="flex items-end gap-3 mb-6 p-4 border rounded-lg bg-muted/30"
-      >
-        <div className="flex flex-col gap-1">
-          <label className="text-xs font-medium text-muted-foreground">File</label>
+        {/* Upload form inline */}
+        <form onSubmit={handleUpload} className="flex items-center gap-3 flex-1">
           <input
             ref={fileRef}
             type="file"
@@ -231,11 +225,8 @@ export default function DocumentsPage() {
             required
             className="text-sm file:mr-3 file:py-1 file:px-3 file:rounded file:border-0 file:text-sm file:font-medium file:bg-primary file:text-primary-foreground hover:file:cursor-pointer"
           />
-        </div>
-        <div className="flex flex-col gap-1">
-          <label className="text-xs font-medium text-muted-foreground">Document Type</label>
           <Select value={docType} onValueChange={setDocType}>
-            <SelectTrigger className="w-44">
+            <SelectTrigger className="w-44 h-8 text-sm">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -244,12 +235,12 @@ export default function DocumentsPage() {
               ))}
             </SelectContent>
           </Select>
-        </div>
-        <Button type="submit" disabled={upload.isPending}>
-          <Upload className="h-4 w-4 mr-2" />
-          Upload
-        </Button>
-      </form>
+          <Button type="submit" size="sm" disabled={upload.isPending}>
+            <Upload className="h-3.5 w-3.5 mr-1.5" />
+            Upload
+          </Button>
+        </form>
+      </div>
 
       {/* Document grid */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 mb-6">
