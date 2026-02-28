@@ -464,6 +464,50 @@ export default function GroundTruthPage() {
     );
   }
 
+  // ── Extracted rows grouped by project (for comparison) ──
+
+  const extractedRowsByCode = useMemo(() => {
+    const map = new Map<string, { projectCode: string; projectName: string; hours: Record<string, number> }>();
+    for (const line of docLines) {
+      const code = line.PROJECT_CODE ?? line.PROJECT ?? "";
+      if (!code) continue;
+      if (!map.has(code)) {
+        const canonical = canonicalProjects.find((p) => p.PROJECT_CODE === code);
+        map.set(code, {
+          projectCode: code,
+          projectName: canonical?.PROJECT_NAME ?? line.PROJECT ?? "",
+          hours: {},
+        });
+      }
+      if (line.WORK_DATE && line.HOURS != null) {
+        map.get(code)!.hours[line.WORK_DATE] = line.HOURS;
+      }
+    }
+    return map;
+  }, [docLines, canonicalProjects]);
+
+  // GT lookup: projectCode → date → hours (for comparison against extraction)
+  const gtLookup = useMemo(() => {
+    const lookup: Record<string, Record<string, number>> = {};
+    for (const row of rows) {
+      if (!row.projectCode) continue;
+      lookup[row.projectCode] = {};
+      for (const date of dates) {
+        const h = parseHours(row.hours[date] ?? "");
+        if (h > 0) lookup[row.projectCode][date] = h;
+      }
+    }
+    return lookup;
+  }, [rows, dates]);
+
+  // Union of project codes from both GT and extraction, for full comparison view
+  const allComparisonCodes = useMemo(() => {
+    const codes = new Set<string>();
+    rows.forEach((r) => { if (r.projectCode) codes.add(r.projectCode); });
+    extractedRowsByCode.forEach((_, code) => codes.add(code));
+    return [...codes].sort();
+  }, [rows, extractedRowsByCode]);
+
   // ── Totals ──
 
   function rowTotal(row: GTRow) {
@@ -788,6 +832,111 @@ export default function GroundTruthPage() {
                   {save.isPending ? "Saving…" : "Save Ground Truth"}
                 </Button>
               </div>
+
+              {/* ── AI Extraction comparison ── */}
+              {allComparisonCodes.length > 0 && (
+                <div className="mt-6">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide">AI Extraction</span>
+                    <div className="flex-1 h-px bg-slate-200" />
+                    <div className="flex items-center gap-3 text-[10px] text-slate-400">
+                      <span className="flex items-center gap-1"><span className="inline-block w-2.5 h-2.5 rounded-sm bg-green-200 border border-green-300" />Match</span>
+                      <span className="flex items-center gap-1"><span className="inline-block w-2.5 h-2.5 rounded-sm bg-red-200 border border-red-300" />Discrepancy</span>
+                      <span className="flex items-center gap-1"><span className="inline-block w-2.5 h-2.5 rounded-sm bg-amber-200 border border-amber-300" />Extra</span>
+                      <span className="flex items-center gap-1"><span className="inline-block w-2.5 h-2.5 rounded-sm bg-slate-100 border border-slate-300" />Missing</span>
+                    </div>
+                  </div>
+                  <table className="w-full text-xs border-collapse">
+                    <thead>
+                      <tr className="bg-slate-50">
+                        <th className="px-3 py-2 text-left font-semibold border border-slate-200 min-w-[260px] text-slate-500">Project</th>
+                        {dates.map((d) => (
+                          <th key={d} className="px-2 py-2 text-center font-semibold border border-slate-200 min-w-[72px] whitespace-nowrap text-slate-500">
+                            {fmtDate(d)}
+                          </th>
+                        ))}
+                        <th className="px-2 py-2 text-center font-semibold border border-slate-200 bg-slate-100 min-w-[52px] text-slate-500">Total</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {allComparisonCodes.map((code, i) => {
+                        const extRow = extractedRowsByCode.get(code);
+                        const gtRow = gtLookup[code];
+                        const isMissing = !extRow; // in GT but not extracted
+                        const isExtra = !gtRow;    // extracted but not in GT
+                        const extTotal = dates.reduce((s, d) => s + (extRow?.hours[d] ?? 0), 0);
+
+                        return (
+                          <tr
+                            key={code}
+                            className={
+                              isMissing ? "bg-slate-50 opacity-60"
+                              : isExtra ? "bg-purple-50"
+                              : i % 2 === 0 ? "bg-white" : "bg-slate-50"
+                            }
+                          >
+                            <td className={`border border-slate-200 px-3 py-2 ${isExtra ? "border-l-2 border-l-purple-400" : isMissing ? "border-l-2 border-l-slate-300" : ""}`}>
+                              <div className="font-mono text-[10px] text-blue-700">{code}</div>
+                              <div className="text-[11px] text-slate-500">
+                                {extRow?.projectName ?? rows.find((r) => r.projectCode === code)?.projectName ?? "—"}
+                              </div>
+                              {isExtra && <div className="text-[10px] text-purple-600 font-semibold">EXTRA</div>}
+                              {isMissing && <div className="text-[10px] text-slate-400 font-semibold">MISSING</div>}
+                            </td>
+                            {dates.map((d) => {
+                              const extH = extRow?.hours[d] ?? 0;
+                              const gtH = gtRow?.[d] ?? 0;
+                              let cellClass = "text-slate-300";
+                              let label = "";
+
+                              if (isMissing) {
+                                label = "—";
+                                cellClass = "text-slate-300";
+                              } else if (extH > 0 && gtH > 0) {
+                                label = extH.toFixed(1);
+                                cellClass = Math.abs(extH - gtH) < 0.01
+                                  ? "bg-green-100 text-green-800 font-semibold"
+                                  : "bg-red-100 text-red-800 font-semibold";
+                              } else if (extH > 0) {
+                                label = extH.toFixed(1);
+                                cellClass = isExtra ? "text-purple-700" : "bg-amber-100 text-amber-800 font-semibold";
+                              } else if (gtH > 0) {
+                                label = "—";
+                                cellClass = "text-slate-300";
+                              }
+
+                              return (
+                                <td key={d} className={`border border-slate-200 px-2 py-2 text-center font-mono ${cellClass}`}>
+                                  {label || ""}
+                                </td>
+                              );
+                            })}
+                            <td className="border border-slate-200 px-2 py-2 text-center font-mono text-slate-500 bg-slate-50">
+                              {extTotal > 0 ? extTotal.toFixed(1) : "—"}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                    <tfoot>
+                      <tr className="bg-slate-100 font-semibold">
+                        <td className="px-3 py-2 border border-slate-300 text-slate-500">Daily Total</td>
+                        {dates.map((d) => {
+                          const t = [...extractedRowsByCode.values()].reduce((s, r) => s + (r.hours[d] ?? 0), 0);
+                          return (
+                            <td key={d} className="border border-slate-300 px-2 py-2 text-center text-slate-600 font-mono">
+                              {t > 0 ? t.toFixed(1) : "—"}
+                            </td>
+                          );
+                        })}
+                        <td className="border border-slate-300 px-2 py-2 text-center bg-slate-200 text-slate-700 font-mono font-bold">
+                          {[...extractedRowsByCode.values()].reduce((s, r) => s + dates.reduce((s2, d) => s2 + (r.hours[d] ?? 0), 0), 0).toFixed(1)}
+                        </td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              )}
           </div>
         </div>
       )}
