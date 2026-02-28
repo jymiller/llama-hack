@@ -16,7 +16,7 @@ export async function POST(
 
     for (const line of lines) {
       await runExecute(
-        `MERGE INTO LEDGER_APPROVALS AS target
+        `MERGE INTO APPROVED_LINES AS target
          USING (SELECT ? AS LINE_ID, ? AS DOC_ID) AS src
            ON target.LINE_ID = src.LINE_ID
          WHEN MATCHED THEN UPDATE SET
@@ -42,7 +42,7 @@ export async function DELETE(
 ) {
   try {
     const { id } = await params;
-    await runExecute(`DELETE FROM LEDGER_APPROVALS WHERE DOC_ID = ?`, [id]);
+    await runExecute(`DELETE FROM APPROVED_LINES WHERE DOC_ID = ?`, [id]);
     return NextResponse.json({ success: true });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);

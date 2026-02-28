@@ -211,6 +211,89 @@ export function useClearApprovals() {
   });
 }
 
+// ── Master Data ──────────────────────────────────────────────────────────────
+
+export function useMasterProjects() {
+  return useQuery<{
+    projects: import("@/lib/types").CuratedProject[];
+    suspects: import("@/lib/types").ProjectCodeSuspect[];
+  }>({
+    queryKey: ["master-projects"],
+    queryFn: () =>
+      fetchJson("/api/master-data/projects"),
+  });
+}
+
+export function useConfirmProject() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: {
+      project_code: string;
+      project_name?: string;
+      confirmed?: boolean;
+      is_active?: boolean;
+      curation_note?: string;
+    }) =>
+      fetch("/api/master-data/projects", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      }).then((r) => {
+        if (!r.ok) return r.json().then((e) => Promise.reject(e.error));
+        return r.json();
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["master-projects"] }),
+  });
+}
+
+export function useMasterWorkers() {
+  return useQuery<{
+    workers: import("@/lib/types").CuratedWorker[];
+    suspects: import("@/lib/types").WorkerNameSuspect[];
+  }>({
+    queryKey: ["master-workers"],
+    queryFn: () =>
+      fetchJson("/api/master-data/workers"),
+  });
+}
+
+export function useConfirmWorker() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: {
+      worker_key: string;
+      display_name?: string;
+      confirmed?: boolean;
+      is_active?: boolean;
+      curation_note?: string;
+    }) =>
+      fetch("/api/master-data/workers", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      }).then((r) => {
+        if (!r.ok) return r.json().then((e) => Promise.reject(e.error));
+        return r.json();
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["master-workers"] }),
+  });
+}
+
+export function useSyncMaster() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      fetch("/api/master-data/sync", { method: "POST" }).then((r) => {
+        if (!r.ok) return r.json().then((e) => Promise.reject(e.error));
+        return r.json();
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["master-projects"] });
+      qc.invalidateQueries({ queryKey: ["master-workers"] });
+    },
+  });
+}
+
 // ── Trusted Ledger ───────────────────────────────────────────────────────────
 
 export function useTrustedLedger() {

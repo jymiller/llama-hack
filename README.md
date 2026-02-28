@@ -20,11 +20,10 @@ This system eliminates that gap by:
 
 ```mermaid
 flowchart TD
-    A([Prime Contractor<br>Timesheet Screenshots]) --> B
+    A([Prime Contractor<br>Timesheet Screenshots]) --> C
     B([Agency Invoice<br>Images]) --> C
-    A --> C
 
-    C[Upload to<br>Snowflake Stage]
+    C[Upload to<br>DOCUMENTS_STAGE_SSE<br><i>Snowflake Internal SSE Stage</i>]
 
     C --> D{Extraction Method}
 
@@ -34,43 +33,65 @@ flowchart TD
     E --> G["SNOWFLAKE.CORTEX.COMPLETE<br>claude-3-5-sonnet<br>with image input"]
     F --> H["CrewAI Extraction Agent<br>(OCR text → structured rows)"]
 
-    G --> I[(EXTRACTED_LINES<br>worker · date · project<br>hours · confidence)]
+    G --> I[(RAW_DOCUMENTS<br>+ EXTRACTED_LINES<br>worker · date · project<br>hours · confidence)]
     H --> I
 
-    I --> J["Automated Validation<br>(run_validation.py or CrewAI)"]
+    %% ── Master Data (Curated) ──────────────────────────────
+    I -->|"SYNC_CURATED_MASTER<br>(after each extraction)"| MD["Master Data Sync"]
 
-    J --> K{Validation<br>Checks}
+    MD --> CP[("CURATED_PROJECTS ✦<br>project_code · project_name<br>confirmed · curation_source<br>curation_note")]
+    MD --> CW[("CURATED_WORKERS ✦<br>worker_key · display_name<br>confirmed · curation_source<br>curation_note")]
+
+    CP --> FS["PROJECT_CODE_SUSPECTS view<br>EDITDISTANCE ≤ 3 vs confirmed codes<br>flags likely OCR misreads"]
+    CW --> WS["WORKER_NAME_SUSPECTS view<br>EDITDISTANCE ≤ 3 vs confirmed names"]
+
+    FS --> MDPage["Master Data Page<br>Pending review queue<br>Fuzzy-match alerts<br>Confirm / Edit"]
+    WS --> MDPage
+    MDPage --> CP
+    MDPage --> CW
+
+    %% ── Validation ─────────────────────────────────────────
+    I --> J["Automated Validation<br>(RUN_VALIDATION proc)"]
+    J --> K{Validation Checks}
     K -->|Document-level| K1["✓ Worker identifiable<br>✓ Dates present<br>✓ Avg confidence ≥ 0.7<br>✓ Total hours ≤ 60/week"]
     K -->|Line-level| K2["✓ Date format YYYY-MM-DD<br>✓ Hours 0–24<br>✓ Required fields present"]
     K -->|Cross-artifact| K3["✓ Approved hrs × rate<br>≈ Invoice amount ±1%"]
-
     K1 & K2 & K3 --> L[(VALIDATION_RESULTS<br>PASS · FAIL · WARN)]
 
-    L --> M["Streamlit App<br>(Analyst Review)"]
+    %% ── Analyst Review ─────────────────────────────────────
+    L --> M["Next.js App<br>(Analyst Review)"]
 
-    M --> N["Page 3: Ground Truth Entry<br>Weekly spreadsheet grid<br>side-by-side with image"]
-    M --> O["Page 4: Accuracy Comparison<br>Extracted vs Ground Truth<br>day-by-day diff"]
-    M --> P["Page 5: Approval Workflow<br>APPROVE · REJECT · CORRECT<br>per extracted line"]
+    M --> N["Ground Truth Entry<br>Weekly grid side-by-side<br>with timesheet image"]
+    M --> O["Accuracy Comparison<br>Extracted vs Ground Truth<br>day-by-day diff"]
+    M --> P["Approval Workflow<br>APPROVE · REJECT · CORRECT<br>per extracted line"]
 
-    N --> Q[(GROUND_TRUTH_LINES)]
-    P --> R[(LEDGER_APPROVALS)]
+    N --> Q[("CURATED_GROUND_TRUTH ✦<br>analyst-entered hours<br>+ curation_note")]
+    P --> R[("APPROVED_LINES ✦<br>decision · corrected_*<br>reviewer")]
 
     Q --> S["EXTRACTION_ACCURACY view<br>Matched · Discrepancy<br>Missing · Extra"]
     R --> T["TRUSTED_LEDGER view<br>Approved + corrected lines<br>with corrections applied"]
 
-    T --> U["Page 6: Reconciliation<br>Monthly/Quarterly Summary"]
+    T --> U["Reconciliation Page<br>Monthly/Quarterly Summary"]
     U --> V[(RECON_SUMMARY<br>Approved hrs · Implied cost<br>Invoice amounts · Variances)]
 
     V --> W{Variance<br>Within ±1%?}
     W -->|Yes| X([✅ Reconciliation<br>Complete])
-    W -->|No| Y([⚠️ Exception Report<br>via Composio/Gmail])
+    W -->|No| Y([⚠️ Exception Report])
 
     style G fill:#4A90D9,color:#fff
     style E fill:#29B5E8,color:#fff
     style T fill:#2ECC71,color:#fff
     style Y fill:#E74C3C,color:#fff
     style X fill:#2ECC71,color:#fff
+    style CP fill:#8E44AD,color:#fff
+    style CW fill:#8E44AD,color:#fff
+    style MD fill:#7D3C98,color:#fff
+    style MDPage fill:#9B59B6,color:#fff
+    style Q fill:#6C3483,color:#fff
+    style R fill:#6C3483,color:#fff
 ```
+
+> **✦ Curated tables** (`CURATED_*`, `APPROVED_LINES`) contain analyst-reviewed or auto-synced reference data with a `curation_source` and `curation_note` tracking how each record was created or updated.
 
 ---
 
@@ -101,7 +122,7 @@ The preferred path skips OCR entirely. A Snowflake stored procedure sends the ra
 SELECT SNOWFLAKE.CORTEX.COMPLETE(
     'claude-3-5-sonnet',
     extraction_prompt,            -- JSON schema + rules
-    TO_FILE('@DOCUMENTS_STAGE_UNENC', filename)  -- raw image
+    TO_FILE('@DOCUMENTS_STAGE_SSE', filename)  -- raw image (SSE stage required)
 ) INTO llm_response;
 ```
 
@@ -145,18 +166,19 @@ When multimodal is unavailable, `PROCESS_DOCUMENT_OCR` runs `SNOWFLAKE.CORTEX.PA
 
 | Page | Purpose |
 |---|---|
-| **1. Documents & OCR** | Upload images to Snowflake stage, trigger OCR, preview raw OCR text |
-| **2. Extraction & Validation** | Re-extract individual docs via multimodal, view extracted lines and validation results, monitor pipeline status |
-| **3. Ground Truth Entry** | Side-by-side view of the original image + an editable weekly grid (Sat–Fri). Analyst enters or corrects hours per project per day. Saved to `GROUND_TRUTH_LINES`. |
-| **4. Accuracy Comparison** | Color-coded day-level diff between AI-extracted and ground truth hours. Shows MATCH / DISCREPANCY / MISSING / EXTRA per row. |
-| **5. Approval Workflow** | Per-line APPROVE / REJECT / CORRECT decisions. Bulk approve available. Corrections capture replacement hours, date, and project. Results go into `LEDGER_APPROVALS`. |
-| **6. Reconciliation** | Monthly/quarterly aggregations from `TRUSTED_LEDGER`, variance warnings vs. `RECON_SUMMARY`. |
+| **Documents** | Upload images to Snowflake stage, trigger OCR, preview raw OCR text |
+| **Extraction** | Re-extract individual docs via multimodal, view extracted lines and validation results, monitor pipeline status |
+| **Ground Truth** | Side-by-side view of the original image + an editable weekly grid (Sat–Fri). Analyst enters or corrects hours per project per day. Saved to `CURATED_GROUND_TRUTH`. |
+| **Master Data** | Curated project code and worker master lists. Unconfirmed entries (auto-populated after extraction) appear in a review queue. Fuzzy-match suspects (edit-distance ≤ 3 to a confirmed code) are highlighted with the `curation_note` explaining the likely misread. Calls `SYNC_CURATED_MASTER` on demand. |
+| **Accuracy** | Color-coded day-level diff between AI-extracted and ground truth hours. Shows MATCH / DISCREPANCY / MISSING / EXTRA per row. |
+| **Approvals** | Per-line APPROVE / REJECT / CORRECT decisions. Bulk approve available. Corrections capture replacement hours, date, and project. Results go into `APPROVED_LINES`. |
+| **Reconciliation** | Monthly/quarterly aggregations from `TRUSTED_LEDGER`, variance warnings vs. `RECON_SUMMARY`. |
 
 ---
 
 ### Trusted Ledger
 
-`TRUSTED_LEDGER` is a view that joins `EXTRACTED_LINES` with `LEDGER_APPROVALS`, applying corrections inline:
+`TRUSTED_LEDGER` is a view that joins `EXTRACTED_LINES` with `APPROVED_LINES`, applying corrections inline:
 
 ```sql
 SELECT
@@ -165,8 +187,9 @@ SELECT
     COALESCE(a.corrected_project, e.project)    AS project,
     ...
 FROM EXTRACTED_LINES e
-INNER JOIN LEDGER_APPROVALS a ON e.line_id = a.line_id
+INNER JOIN APPROVED_LINES a ON e.line_id = a.line_id
 WHERE a.decision IN ('APPROVED', 'CORRECTED');
+```
 ```
 
 Only lines explicitly approved or corrected by an analyst appear here. This becomes the financial system of record.
@@ -176,6 +199,8 @@ Only lines explicitly approved or corrected by an analyst appear here. This beco
 ## Data Model
 
 ```
+── RAW TIER ─────────────────────────────────────────────────────────────────
+
 RAW_DOCUMENTS          EXTRACTED_LINES         VALIDATION_RESULTS
 ─────────────          ───────────────         ──────────────────
 doc_id (PK)    ──┬──▶  line_id (PK)       ◀──  validation_id (PK)
@@ -184,28 +209,52 @@ file_path           │   worker                  line_id (FK, nullable)
 ocr_text            │   work_date               rule_name
 ocr_status          │   project                 status (PASS/FAIL/WARN)
 ingested_ts         │   project_code            details
-                    │   hours                   computed_value
+                    │   hours
                     │   extraction_confidence
-                    │   raw_text_snippet        GROUND_TRUTH_LINES
-                    │                          ──────────────────
-                    │                           gt_line_id (PK)
-                    │   LEDGER_APPROVALS        doc_id (FK)
-                    │   ───────────────         worker
-                    └▶  line_id (FK)            work_date
-                        doc_id (FK)             project
-                        decision                hours
-                        corrected_*             entered_by
-                        reason
-                        reviewer
+                    │   raw_text_snippet
 
-RECON_SUMMARY          VIEWS
-─────────────          ─────
-period_month           TRUSTED_LEDGER      — approved+corrected lines
-period_quarter         EXTRACTION_ACCURACY — extracted vs ground truth
-approved_hours         PIPELINE_STATUS     — per-doc processing overview
-implied_cost
-variance_subsub
-variance_my
+── CURATED TIER ─────────────────────────────────────────────────────────────
+
+CURATED_PROJECTS       CURATED_WORKERS         CURATED_GROUND_TRUTH
+────────────────       ───────────────         ────────────────────
+project_code (PK)      worker_key (PK)         gt_id (PK)
+project_name           display_name            doc_id (FK)
+confirmed              confirmed               worker
+is_active              is_active               work_date
+first_seen             first_seen              project
+curation_source ──┐    curation_source ──┐     hours
+curation_note     │    curation_note     │     entered_by
+matched_from_code │                      │     curation_note
+                  │                      │
+   auto_extracted ┤    auto_extracted ───┤  (new codes/workers auto-added
+   fuzzy_match    ┤    fuzzy_match    ───┤   after each extraction run;
+   manual         ┘    manual         ──┘   confirmed by analyst)
+
+APPROVED_LINES
+──────────────
+approval_id (PK)
+line_id (FK) ──▶ EXTRACTED_LINES
+doc_id (FK)
+decision (APPROVED | REJECTED | CORRECTED)
+corrected_worker / corrected_date / corrected_project / corrected_hours
+reason · reviewer · reviewed_ts
+
+── VIEWS ────────────────────────────────────────────────────────────────────
+
+TRUSTED_LEDGER          — EXTRACTED_LINES ⋈ APPROVED_LINES, corrections applied
+EXTRACTION_ACCURACY     — EXTRACTED_LINES vs CURATED_GROUND_TRUTH, diff per line
+PIPELINE_STATUS         — per-doc processing overview
+PROJECT_CODE_SUSPECTS   — extracted codes within edit-distance 3 of confirmed master
+WORKER_NAME_SUSPECTS    — extracted workers within edit-distance 3 of confirmed master
+
+── AGGREGATES ───────────────────────────────────────────────────────────────
+
+RECON_SUMMARY
+─────────────
+period_month · period_quarter
+approved_hours · implied_cost
+invoice_subsub_amount · invoice_my_amount
+variance_subsub · variance_my
 ```
 
 ---
@@ -216,7 +265,7 @@ variance_my
 
 Run `sql/setup.sql` in your Snowflake account. This creates:
 - Database `RECONCILIATION`, schema `PUBLIC`
-- Stage `DOCUMENTS_STAGE` (for OCR path) and `DOCUMENTS_STAGE_UNENC` (for multimodal — must be unencrypted for `TO_FILE()`)
+- Stage `DOCUMENTS_STAGE` (for OCR path) and `DOCUMENTS_STAGE_SSE` (for multimodal — must use `ENCRYPTION = (TYPE = 'SNOWFLAKE_SSE')` for `TO_FILE()` to work with Cortex)
 - All tables, views, and stored procedures
 
 Add a `[hack]` connection profile to `~/.snowflake/connections.toml`:

@@ -102,6 +102,47 @@ export interface PipelineStatus {
   APPROVAL_DONE: boolean;
 }
 
+export interface CuratedProject {
+  PROJECT_CODE: string;
+  PROJECT_NAME: string | null;
+  CONFIRMED: boolean;
+  IS_ACTIVE: boolean;
+  FIRST_SEEN: string | null;
+  ADDED_AT: string;
+  CURATION_SOURCE: "auto_extracted" | "fuzzy_match" | "manual";
+  CURATION_NOTE: string | null;
+  MATCHED_FROM_CODE: string | null;
+}
+
+export interface CuratedWorker {
+  WORKER_KEY: string;
+  DISPLAY_NAME: string | null;
+  CONFIRMED: boolean;
+  IS_ACTIVE: boolean;
+  FIRST_SEEN: string | null;
+  ADDED_AT: string;
+  CURATION_SOURCE: "auto_extracted" | "fuzzy_match" | "manual";
+  CURATION_NOTE: string | null;
+}
+
+export interface ProjectCodeSuspect {
+  DOC_ID: string;
+  LINE_ID: string;
+  EXTRACTED_CODE: string;
+  MASTER_CODE: string;
+  MASTER_NAME: string | null;
+  EDIT_DIST: number;
+}
+
+export interface WorkerNameSuspect {
+  DOC_ID: string;
+  LINE_ID: string;
+  EXTRACTED_WORKER: string;
+  WORKER_KEY: string;
+  MASTER_DISPLAY_NAME: string | null;
+  EDIT_DIST: number;
+}
+
 // Combined type for approval page
 export interface ApprovalLineRow extends ExtractedLine {
   DECISION: "APPROVED" | "REJECTED" | "CORRECTED" | null;

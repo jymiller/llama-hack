@@ -10,12 +10,14 @@ import {
   BarChart2,
   ThumbsUp,
   DollarSign,
+  BookMarked,
 } from "lucide-react";
 
 const NAV_ITEMS = [
   { href: "/documents", label: "Documents", icon: FileText },
   { href: "/extraction", label: "Extraction", icon: Cpu },
   { href: "/ground-truth", label: "Ground Truth", icon: CheckSquare },
+  { href: "/master-data", label: "Master Data", icon: BookMarked },
   { href: "/accuracy", label: "Accuracy", icon: BarChart2 },
   { href: "/approvals", label: "Approvals", icon: ThumbsUp },
   { href: "/reconciliation", label: "Reconciliation", icon: DollarSign },

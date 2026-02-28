@@ -9,9 +9,9 @@ export async function GET(
   try {
     const { id } = await params;
     const rows = await runQuery<GroundTruthLine>(
-      `SELECT GT_LINE_ID AS GT_ID, DOC_ID, WORKER, WORK_DATE, PROJECT,
+      `SELECT GT_ID, DOC_ID, WORKER, WORK_DATE, PROJECT,
               NULL AS PROJECT_CODE, HOURS, ENTERED_BY, ENTERED_TS AS ENTERED_AT
-       FROM GROUND_TRUTH_LINES
+       FROM CURATED_GROUND_TRUTH
        WHERE DOC_ID = ?
        ORDER BY WORK_DATE`,
       [id]
@@ -33,13 +33,13 @@ export async function PUT(
       await req.json();
 
     await runExecute(
-      `DELETE FROM GROUND_TRUTH_LINES WHERE DOC_ID = ?`,
+      `DELETE FROM CURATED_GROUND_TRUTH WHERE DOC_ID = ?`,
       [id]
     );
 
     for (const line of lines) {
       await runExecute(
-        `INSERT INTO GROUND_TRUTH_LINES (DOC_ID, WORKER, WORK_DATE, PROJECT, HOURS, ENTERED_BY)
+        `INSERT INTO CURATED_GROUND_TRUTH (DOC_ID, WORKER, WORK_DATE, PROJECT, HOURS, ENTERED_BY)
          VALUES (?, ?, ?, ?, ?, 'analyst')`,
         [
           id,

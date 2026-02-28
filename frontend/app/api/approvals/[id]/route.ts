@@ -16,8 +16,8 @@ export async function GET(
               la.CORRECTED_PROJECT, la.REASON AS ANALYST_NOTE,
               gt.HOURS AS GT_HOURS
        FROM EXTRACTED_LINES el
-       LEFT JOIN LEDGER_APPROVALS la ON la.LINE_ID = el.LINE_ID
-       LEFT JOIN GROUND_TRUTH_LINES gt
+       LEFT JOIN APPROVED_LINES la ON la.LINE_ID = el.LINE_ID
+       LEFT JOIN CURATED_GROUND_TRUTH gt
          ON gt.DOC_ID = el.DOC_ID AND gt.WORK_DATE = el.WORK_DATE AND gt.WORKER = el.WORKER
        WHERE el.DOC_ID = ?
        ORDER BY el.WORK_DATE`,
@@ -46,7 +46,7 @@ export async function POST(
     } = await req.json();
 
     await runExecute(
-      `MERGE INTO LEDGER_APPROVALS AS target
+      `MERGE INTO APPROVED_LINES AS target
        USING (SELECT ? AS LINE_ID, ? AS DOC_ID) AS src
          ON target.LINE_ID = src.LINE_ID
        WHEN MATCHED THEN UPDATE SET

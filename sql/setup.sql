@@ -64,9 +64,9 @@ CREATE TABLE IF NOT EXISTS RECON_SUMMARY (
     created_ts TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP()
 );
 
--- 7. GROUND_TRUTH_LINES - Financial analyst-entered correct data
-CREATE TABLE IF NOT EXISTS GROUND_TRUTH_LINES (
-    gt_line_id VARCHAR(100) PRIMARY KEY DEFAULT UUID_STRING(),
+-- 7. CURATED_GROUND_TRUTH - Financial analyst-entered correct data (curated)
+CREATE TABLE IF NOT EXISTS CURATED_GROUND_TRUTH (
+    gt_id VARCHAR(100) PRIMARY KEY DEFAULT UUID_STRING(),
     doc_id VARCHAR(100) NOT NULL REFERENCES RAW_DOCUMENTS(doc_id),
     worker VARCHAR(200),
     work_date DATE,
@@ -74,11 +74,12 @@ CREATE TABLE IF NOT EXISTS GROUND_TRUTH_LINES (
     hours DECIMAL(5,2),
     notes TEXT,
     entered_by VARCHAR(200) DEFAULT CURRENT_USER(),
-    entered_ts TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP()
+    entered_ts TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP(),
+    curation_note VARCHAR(1000)  -- e.g. "Corrected via fuzzy match: project_code 006QI→006GI"
 );
 
--- 8. LEDGER_APPROVALS - Analyst approve/reject/correct decisions per extracted line
-CREATE TABLE IF NOT EXISTS LEDGER_APPROVALS (
+-- 8. APPROVED_LINES - Analyst approve/reject/correct decisions per extracted line (curated)
+CREATE TABLE IF NOT EXISTS APPROVED_LINES (
     approval_id VARCHAR(100) PRIMARY KEY DEFAULT UUID_STRING(),
     line_id VARCHAR(100) NOT NULL REFERENCES EXTRACTED_LINES(line_id),
     doc_id VARCHAR(100) NOT NULL REFERENCES RAW_DOCUMENTS(doc_id),
@@ -97,7 +98,7 @@ CREATE TABLE IF NOT EXISTS LEDGER_APPROVALS (
 CREATE OR REPLACE VIEW EXTRACTION_ACCURACY AS
 WITH gt AS (
     SELECT doc_id, worker, work_date, project, hours
-    FROM GROUND_TRUTH_LINES
+    FROM CURATED_GROUND_TRUTH
 ),
 ext AS (
     SELECT doc_id, line_id, worker, work_date, project, hours
@@ -167,7 +168,7 @@ SELECT
     e.extraction_confidence,
     e.raw_text_snippet
 FROM EXTRACTED_LINES e
-INNER JOIN LEDGER_APPROVALS a ON e.line_id = a.line_id
+INNER JOIN APPROVED_LINES a ON e.line_id = a.line_id
 WHERE a.decision IN ('APPROVED', 'CORRECTED');
 
 -- 11. Create stored procedure to run OCR on staged documents
@@ -367,7 +368,7 @@ Return ONLY valid JSON (no markdown, no extra text):
     line_count := ARRAY_SIZE(:lines_array);
 
     -- Delete old data for this doc (idempotent re-extraction)
-    DELETE FROM LEDGER_APPROVALS WHERE doc_id = :P_DOC_ID;
+    DELETE FROM APPROVED_LINES WHERE doc_id = :P_DOC_ID;
     DELETE FROM VALIDATION_RESULTS WHERE doc_id = :P_DOC_ID;
     DELETE FROM EXTRACTED_LINES WHERE doc_id = :P_DOC_ID;
 
@@ -466,7 +467,7 @@ Return ONLY valid JSON (no markdown, no extra text):
 - Verify each row total matches the TOTAL column in Time Details before finalizing.';
 
     -- Clean out old extracted data (idempotent re-extraction)
-    DELETE FROM LEDGER_APPROVALS  WHERE doc_id IN (SELECT doc_id FROM RAW_DOCUMENTS);
+    DELETE FROM APPROVED_LINES    WHERE doc_id IN (SELECT doc_id FROM RAW_DOCUMENTS);
     DELETE FROM VALIDATION_RESULTS WHERE doc_id IN (SELECT doc_id FROM RAW_DOCUMENTS);
     DELETE FROM EXTRACTED_LINES    WHERE doc_id IN (SELECT doc_id FROM RAW_DOCUMENTS);
 
@@ -727,6 +728,176 @@ BEGIN
         || ' document(s), '
         || (SELECT COUNT(*)::VARCHAR FROM VALIDATION_RESULTS)
         || ' total checks';
+EXCEPTION
+    WHEN OTHER THEN
+        RETURN 'ERROR: ' || SQLERRM;
+END;
+$$;
+
+
+-- ============================================================
+-- 18. CURATED_PROJECTS - Master list of known project codes (curated)
+-- Populated automatically by SYNC_CURATED_MASTER; confirmed by analysts.
+-- curation_source: 'auto_extracted' | 'fuzzy_match' | 'manual'
+-- curation_note: describes what changed, e.g. for fuzzy_match entries records
+--   the original extracted code and edit distance to the confirmed master code.
+-- ============================================================
+CREATE TABLE IF NOT EXISTS CURATED_PROJECTS (
+    project_code      VARCHAR(20)   NOT NULL PRIMARY KEY,
+    project_name      VARCHAR(500),
+    confirmed         BOOLEAN       DEFAULT FALSE,
+    is_active         BOOLEAN       DEFAULT TRUE,
+    first_seen        DATE,
+    added_at          TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP(),
+    curation_source   VARCHAR(20)   DEFAULT 'auto_extracted',
+        -- 'auto_extracted' = appeared in EXTRACTED_LINES, awaiting review
+        -- 'fuzzy_match'    = auto-linked to a confirmed code by EDITDISTANCE ≤ 3
+        -- 'manual'         = analyst added or edited directly
+    curation_note     VARCHAR(1000),
+        -- e.g. "Auto-matched from extracted code '006QI00000OBRL'
+        --       (edit_dist=1 to confirmed '006GI00000OBRL' — likely G→Q misread)"
+    matched_from_code VARCHAR(20)
+        -- original extracted code when curation_source = 'fuzzy_match'
+);
+
+-- ============================================================
+-- 19. CURATED_WORKERS - Master list of known workers (curated)
+-- worker_key is the normalised lower-case trim of the display name.
+-- ============================================================
+CREATE TABLE IF NOT EXISTS CURATED_WORKERS (
+    worker_key        VARCHAR(200)  NOT NULL PRIMARY KEY,  -- LOWER(TRIM(display_name))
+    display_name      VARCHAR(200),
+    confirmed         BOOLEAN       DEFAULT FALSE,
+    is_active         BOOLEAN       DEFAULT TRUE,
+    first_seen        DATE,
+    added_at          TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP(),
+    curation_source   VARCHAR(20)   DEFAULT 'auto_extracted',
+        -- 'auto_extracted' | 'fuzzy_match' | 'manual'
+    curation_note     VARCHAR(1000)
+        -- e.g. "Normalised from 'Mike Agrawal (V)'; (V) denotes vendor status"
+);
+
+-- ============================================================
+-- 20. PROJECT_CODE_SUSPECTS view
+-- Extracted lines whose project_code is not in confirmed master AND
+-- is within edit-distance 3 of a confirmed code — likely OCR misreads.
+-- ============================================================
+CREATE OR REPLACE VIEW PROJECT_CODE_SUSPECTS AS
+SELECT
+    e.doc_id,
+    e.line_id,
+    e.project_code        AS extracted_code,
+    m.project_code        AS master_code,
+    m.project_name        AS master_name,
+    EDITDISTANCE(e.project_code, m.project_code) AS edit_dist
+FROM EXTRACTED_LINES e
+JOIN CURATED_PROJECTS m
+    ON m.confirmed = TRUE
+    AND e.project_code != m.project_code
+    AND EDITDISTANCE(e.project_code, m.project_code) BETWEEN 1 AND 3
+WHERE e.project_code NOT IN (
+    SELECT project_code FROM CURATED_PROJECTS WHERE confirmed = TRUE
+)
+ORDER BY edit_dist, e.doc_id;
+
+-- ============================================================
+-- 21. WORKER_NAME_SUSPECTS view
+-- Extracted workers not in confirmed master AND within edit-distance 3.
+-- ============================================================
+CREATE OR REPLACE VIEW WORKER_NAME_SUSPECTS AS
+SELECT
+    e.doc_id,
+    e.line_id,
+    e.worker              AS extracted_worker,
+    m.worker_key,
+    m.display_name        AS master_display_name,
+    EDITDISTANCE(LOWER(TRIM(e.worker)), m.worker_key) AS edit_dist
+FROM EXTRACTED_LINES e
+JOIN CURATED_WORKERS m
+    ON m.confirmed = TRUE
+    AND LOWER(TRIM(e.worker)) != m.worker_key
+    AND EDITDISTANCE(LOWER(TRIM(e.worker)), m.worker_key) BETWEEN 1 AND 3
+WHERE LOWER(TRIM(e.worker)) NOT IN (
+    SELECT worker_key FROM CURATED_WORKERS WHERE confirmed = TRUE
+)
+ORDER BY edit_dist, e.doc_id;
+
+-- ============================================================
+-- 22. SYNC_CURATED_MASTER - Auto-populate curated master tables from
+-- EXTRACTED_LINES. New codes/workers land as confirmed=FALSE (queue for review).
+-- Call this after every extraction run.
+-- ============================================================
+CREATE OR REPLACE PROCEDURE SYNC_CURATED_MASTER()
+RETURNS VARCHAR
+LANGUAGE SQL
+AS
+$$
+DECLARE
+    new_projects INTEGER;
+    new_workers  INTEGER;
+BEGIN
+    -- New project codes not yet in master
+    INSERT INTO CURATED_PROJECTS
+        (project_code, project_name, first_seen, curation_source, curation_note)
+    SELECT
+        e.project_code,
+        MIN(e.project),
+        MIN(e.work_date),
+        'auto_extracted',
+        'Auto-populated from EXTRACTED_LINES on ' || CURRENT_DATE::VARCHAR
+    FROM EXTRACTED_LINES e
+    WHERE e.project_code IS NOT NULL
+      AND e.project_code NOT IN (SELECT project_code FROM CURATED_PROJECTS)
+    GROUP BY e.project_code;
+
+    new_projects := SQLROWCOUNT;
+
+    -- New workers not yet in master (normalise to lower-case key)
+    INSERT INTO CURATED_WORKERS
+        (worker_key, display_name, first_seen, curation_source, curation_note)
+    SELECT
+        LOWER(TRIM(e.worker)),
+        MIN(e.worker),
+        MIN(e.work_date),
+        'auto_extracted',
+        'Auto-populated from EXTRACTED_LINES on ' || CURRENT_DATE::VARCHAR
+    FROM EXTRACTED_LINES e
+    WHERE e.worker IS NOT NULL
+      AND LOWER(TRIM(e.worker)) NOT IN (SELECT worker_key FROM CURATED_WORKERS)
+    GROUP BY LOWER(TRIM(e.worker));
+
+    new_workers := SQLROWCOUNT;
+
+    -- Flag extracted codes that are fuzzy-close to a confirmed master code
+    -- (edit-distance 1-3) but not already in the master.
+    -- Updates curation_source and writes a descriptive curation_note.
+    UPDATE CURATED_PROJECTS cp
+    SET
+        curation_source   = 'fuzzy_match',
+        curation_note     = 'Auto-matched from extracted code ''' || cp.project_code
+                            || ''' (edit_dist='
+                            || EDITDISTANCE(cp.project_code, s.master_code)::VARCHAR
+                            || ' to confirmed ''' || s.master_code
+                            || ''' — possible OCR misread)',
+        matched_from_code = cp.project_code
+    FROM (
+        SELECT DISTINCT
+            e.project_code AS extracted_code,
+            m.project_code AS master_code
+        FROM EXTRACTED_LINES e
+        JOIN CURATED_PROJECTS m
+            ON m.confirmed = TRUE
+            AND e.project_code != m.project_code
+            AND EDITDISTANCE(e.project_code, m.project_code) BETWEEN 1 AND 3
+        WHERE e.project_code NOT IN (
+            SELECT project_code FROM CURATED_PROJECTS WHERE confirmed = TRUE
+        )
+    ) s
+    WHERE cp.project_code = s.extracted_code
+      AND cp.curation_source = 'auto_extracted';
+
+    RETURN 'SUCCESS: Added ' || :new_projects::VARCHAR || ' project(s), '
+        || :new_workers::VARCHAR || ' worker(s) to curated master';
 EXCEPTION
     WHEN OTHER THEN
         RETURN 'ERROR: ' || SQLERRM;
