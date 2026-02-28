@@ -103,7 +103,7 @@ export default function Home() {
       {/* Hero */}
       <div className="flex flex-col items-center mb-12">
         <img
-          src="/agentic-mesh-logo.png"
+          src="/agenticmeshbanner.png"
           alt="The Agentic Mesh Company"
           className="h-24 w-auto object-contain mb-4"
           onError={(e) => {

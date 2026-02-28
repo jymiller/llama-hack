@@ -388,7 +388,7 @@ export default function DataGovernancePage() {
                 </thead>
                 <tbody>
                   {projectSuspects.map((s) => (
-                    <tr key={`${s.LINE_ID}`} className="border-t border-amber-200">
+                    <tr key={`${s.LINE_ID}-${s.EXTRACTED_CODE}-${s.MASTER_CODE}`} className="border-t border-amber-200">
                       <td className="py-1 pr-4 font-mono text-red-700">{s.EXTRACTED_CODE}</td>
                       <td className="py-1 pr-4 font-mono text-green-700">{s.MASTER_CODE}</td>
                       <td className="py-1 pr-4 text-slate-700 max-w-[220px] truncate" title={s.MASTER_NAME ?? ""}>
