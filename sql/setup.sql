@@ -307,6 +307,7 @@ DECLARE
     snippet_val TEXT;
     filename VARCHAR;
     stage_ref VARCHAR;
+    doc_type_val VARCHAR;
     extraction_prompt TEXT;
 BEGIN
     -- Derive filename and stage reference from file_path
@@ -314,7 +315,41 @@ BEGIN
     filename  := REGEXP_REPLACE(:P_FILE_PATH, '^.*/', '');
     stage_ref := REGEXP_REPLACE(:P_FILE_PATH, '/[^/]+$', '');
 
-    extraction_prompt := 'You are extracting structured data from a NetSuite Weekly Timesheet screenshot.
+    -- Look up doc type to select the right prompt
+    SELECT DOC_TYPE INTO doc_type_val FROM RAW_DOCUMENTS WHERE DOC_ID = :P_DOC_ID;
+
+    IF (:doc_type_val = 'SUBSUB_INVOICE') THEN
+        extraction_prompt := 'You are extracting structured data from a subcontractor invoice PDF.
+
+The invoice is submitted by a subcontractor or worker billing for hours worked during a specific period (typically a month).
+
+=== OUTPUT FORMAT ===
+Return ONLY valid JSON (no markdown, no extra text):
+{
+  "lines": [
+    {
+      "worker": "Full name of the subcontractor or company on the invoice",
+      "work_date": "Last calendar day of the billing period as YYYY-MM-DD (e.g. September 2025 = 2025-09-30)",
+      "project": "Client or project/engagement name if visible, otherwise null",
+      "project_code": "Project or engagement code if visible (alphanumeric), otherwise null",
+      "hours": 160.0,
+      "extraction_confidence": 0.95,
+      "raw_text_snippet": "Key text confirming this reading"
+    }
+  ]
+}
+
+=== EXTRACTION RULES ===
+- If the invoice has multiple line items (different weeks, projects, or services), produce one JSON object per line item
+- If the invoice shows only a single total, produce one JSON object for the total
+- work_date: use the LAST calendar day of the billing period month (e.g. September 2025 → 2025-09-30; October 2025 → 2025-10-31)
+- hours: extract hours billed as a decimal. Do NOT extract dollar amounts as hours.
+- worker: the subcontractor or company name at the top of the invoice (the FROM party)
+- project: the client name, project name, or engagement description (the TO party or service description)
+- project_code: any alphanumeric project/engagement code if visible, otherwise null
+- extraction_confidence: 0.95 if clearly readable, 0.75 if partially obscured';
+    ELSE
+        extraction_prompt := 'You are extracting structured data from a NetSuite Weekly Timesheet screenshot.
 
 === STEP 1: FIND THE "Time Details" TABLE ===
 Scroll to the BOTTOM of the image. There is a "Time Details (N)" section. This is the CLEANEST data source — use it as your primary reference. It shows:
@@ -357,6 +392,7 @@ Return ONLY valid JSON (no markdown, no extra text):
 - Worker name comes from the timesheet header (e.g. "Mike Agrawal (V)").
 - extraction_confidence: 0.95 if clearly readable, 0.75 if partially obscured.
 - Verify each row total matches the TOTAL column in Time Details before finalizing.';
+    END IF;
 
     -- Call Claude 3.5 Sonnet multimodal with the image file
     SELECT SNOWFLAKE.CORTEX.COMPLETE(
@@ -426,10 +462,11 @@ LANGUAGE SQL
 AS
 $$
 DECLARE
-    extraction_prompt TEXT;
+    timesheet_prompt TEXT;
+    invoice_prompt TEXT;
     res RESULTSET;
 BEGIN
-    extraction_prompt := 'You are extracting structured data from a NetSuite Weekly Timesheet screenshot.
+    timesheet_prompt := 'You are extracting structured data from a NetSuite Weekly Timesheet screenshot.
 
 === STEP 1: FIND THE "Time Details" TABLE ===
 Scroll to the BOTTOM of the image. There is a "Time Details (N)" section. This is the CLEANEST data source — use it as your primary reference. It shows:
@@ -473,6 +510,36 @@ Return ONLY valid JSON (no markdown, no extra text):
 - extraction_confidence: 0.95 if clearly readable, 0.75 if partially obscured.
 - Verify each row total matches the TOTAL column in Time Details before finalizing.';
 
+    invoice_prompt := 'You are extracting structured data from a subcontractor invoice PDF.
+
+The invoice is submitted by a subcontractor or worker billing for hours worked during a specific period (typically a month).
+
+=== OUTPUT FORMAT ===
+Return ONLY valid JSON (no markdown, no extra text):
+{
+  "lines": [
+    {
+      "worker": "Full name of the subcontractor or company on the invoice",
+      "work_date": "Last calendar day of the billing period as YYYY-MM-DD (e.g. September 2025 = 2025-09-30)",
+      "project": "Client or project/engagement name if visible, otherwise null",
+      "project_code": "Project or engagement code if visible (alphanumeric), otherwise null",
+      "hours": 160.0,
+      "extraction_confidence": 0.95,
+      "raw_text_snippet": "Key text confirming this reading"
+    }
+  ]
+}
+
+=== EXTRACTION RULES ===
+- If the invoice has multiple line items (different weeks, projects, or services), produce one JSON object per line item
+- If the invoice shows only a single total, produce one JSON object for the total
+- work_date: use the LAST calendar day of the billing period month (e.g. September 2025 → 2025-09-30; October 2025 → 2025-10-31)
+- hours: extract hours billed as a decimal. Do NOT extract dollar amounts as hours.
+- worker: the subcontractor or company name at the top of the invoice (the FROM party)
+- project: the client name, project name, or engagement description (the TO party or service description)
+- project_code: any alphanumeric project/engagement code if visible, otherwise null
+- extraction_confidence: 0.95 if clearly readable, 0.75 if partially obscured';
+
     -- Clean out old extracted data (idempotent re-extraction)
     DELETE FROM APPROVED_LINES    WHERE doc_id IN (SELECT doc_id FROM RAW_DOCUMENTS);
     DELETE FROM VALIDATION_RESULTS WHERE doc_id IN (SELECT doc_id FROM RAW_DOCUMENTS);
@@ -488,7 +555,7 @@ Return ONLY valid JSON (no markdown, no extra text):
             REGEXP_REPLACE(d.file_path, '^.*/', '') AS filename,
             SNOWFLAKE.CORTEX.COMPLETE(
                 'claude-3-5-sonnet',
-                :extraction_prompt,
+                CASE d.doc_type WHEN 'SUBSUB_INVOICE' THEN :invoice_prompt ELSE :timesheet_prompt END,
                 TO_FILE(REGEXP_REPLACE(d.file_path, '/[^/]+$', ''), REGEXP_REPLACE(d.file_path, '^.*/', ''))
             ) AS llm_response
         FROM RAW_DOCUMENTS d

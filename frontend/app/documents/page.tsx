@@ -2,7 +2,7 @@
 
 import { useState, useRef } from "react";
 import { toast } from "sonner";
-import { Upload, Play, Cpu, CheckCircle, Circle, Trash2, RefreshCw } from "lucide-react";
+import { Upload, Play, Cpu, CheckCircle, Circle, Trash2, RefreshCw, FileText } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
 import { MetricCard } from "@/components/metric-card";
 import { Button } from "@/components/ui/button";
@@ -51,6 +51,7 @@ function DocCard({
 }) {
   const extracted = lines.length > 0;
   const totalHours = extracted ? lines.reduce((s, l) => s + (l.HOURS ?? 0), 0) : null;
+  const isPDF = doc.STAGE_PATH?.toLowerCase().endsWith(".pdf");
 
   return (
     <div
@@ -65,13 +66,20 @@ function DocCard({
     >
       {/* Thumbnail */}
       <div className="relative bg-slate-100 h-40 overflow-hidden">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={`/api/documents/${doc.DOC_ID}/image`}
-          alt={doc.DOC_ID}
-          className="w-full h-full object-cover object-top"
-          onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
-        />
+        {isPDF ? (
+          <div className="w-full h-full flex flex-col items-center justify-center gap-1 text-slate-400">
+            <FileText className="h-10 w-10" />
+            <span className="text-[10px] font-semibold uppercase tracking-wide">PDF</span>
+          </div>
+        ) : (
+          /* eslint-disable-next-line @next/next/no-img-element */
+          <img
+            src={`/api/documents/${doc.DOC_ID}/image`}
+            alt={doc.DOC_ID}
+            className="w-full h-full object-cover object-top"
+            onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+          />
+        )}
         <div className={`absolute top-2 right-2 flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold ${
           extracted ? "bg-green-100 text-green-700" : "bg-slate-200 text-slate-500"
         }`}>
@@ -278,14 +286,22 @@ export default function DocumentsPage() {
           </div>
 
           <div className="flex min-h-[320px]">
-            {/* Image */}
+            {/* Image / PDF viewer */}
             <div className="w-72 shrink-0 border-r border-slate-200 bg-slate-50 flex items-start justify-center p-2">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={`/api/documents/${selectedDocId}/image`}
-                alt={selectedDocId}
-                className="max-w-full max-h-[480px] object-contain rounded shadow-sm"
-              />
+              {selectedDoc?.STAGE_PATH?.toLowerCase().endsWith(".pdf") ? (
+                <iframe
+                  src={`/api/documents/${selectedDocId}/image`}
+                  title={selectedDocId}
+                  className="w-full h-[480px] rounded border-0"
+                />
+              ) : (
+                /* eslint-disable-next-line @next/next/no-img-element */
+                <img
+                  src={`/api/documents/${selectedDocId}/image`}
+                  alt={selectedDocId}
+                  className="max-w-full max-h-[480px] object-contain rounded shadow-sm"
+                />
+              )}
             </div>
 
             {/* Extracted lines */}

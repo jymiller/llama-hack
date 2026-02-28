@@ -73,7 +73,14 @@ const DEFAULT_ZOOM = 1.8;
 // Pan offset to show the bottom third: shift image up by ~40% of its height at default zoom
 const DEFAULT_PAN = { x: 0, y: -0.28 }; // fraction of container height
 
-function ImageViewer({ src, alt }: { src: string; alt: string }) {
+function ImageViewer({ src, alt, isPDF }: { src: string; alt: string; isPDF?: boolean }) {
+  if (isPDF) {
+    return (
+      <div className="relative bg-slate-900 border-b border-slate-200" style={{ height: 340 }}>
+        <iframe src={src} title={alt} className="w-full h-full border-0" />
+      </div>
+    );
+  }
   const containerRef = useRef<HTMLDivElement>(null);
   const [zoom, setZoom] = useState(DEFAULT_ZOOM);
   const [pan, setPan] = useState(DEFAULT_PAN);
@@ -288,7 +295,8 @@ function DocCard({
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function GroundTruthPage() {
-  const { data: docs = [] } = useDocuments();
+  const { data: allDocs = [] } = useDocuments();
+  const docs = allDocs.filter((d) => d.DOC_TYPE === "TIMESHEET");
   const { data: allLines = EMPTY_LINES } = useExtractedLines();
   const { data: masterData } = useMasterProjects();
   const { data: gtCounts = [] } = useGroundTruthCounts();
@@ -670,6 +678,7 @@ export default function GroundTruthPage() {
           <ImageViewer
             src={`/api/documents/${selectedDocId}/image`}
             alt={selectedDocId}
+            isPDF={docs.find((d) => String(d.DOC_ID) === selectedDocId)?.STAGE_PATH?.toLowerCase().endsWith(".pdf")}
           />
 
           {/* Hours grid */}
