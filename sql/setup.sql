@@ -298,43 +298,63 @@ DECLARE
     confidence_val DECIMAL(3,2);
     snippet_val TEXT;
     filename VARCHAR;
+    stage_ref VARCHAR;
     extraction_prompt TEXT;
 BEGIN
-    -- Derive filename from file_path (e.g. '@...STAGE_UNENC/9-13-2025.jpg' -> '9-13-2025.jpg')
-    filename := REGEXP_REPLACE(:P_FILE_PATH, '^.*/', '');
+    -- Derive filename and stage reference from file_path
+    -- e.g. '@RECONCILIATION.PUBLIC.DOCUMENTS_STAGE_UNENC/9-13-2025.jpg'
+    filename  := REGEXP_REPLACE(:P_FILE_PATH, '^.*/', '');
+    stage_ref := REGEXP_REPLACE(:P_FILE_PATH, '/[^/]+$', '');
 
-    extraction_prompt := 'You are a document extraction specialist. Extract structured timesheet data from this image.
+    extraction_prompt := 'You are extracting structured data from a NetSuite Weekly Timesheet screenshot.
 
-Return ONLY valid JSON (no markdown fences) in this exact format:
+=== STEP 1: FIND THE "Time Details" TABLE ===
+Scroll to the BOTTOM of the image. There is a "Time Details (N)" section. This is the CLEANEST data source — use it as your primary reference. It shows:
+- A left column: each project row beginning with a 15-char Salesforce code (e.g. "006GI00000P4aPt Randstad...")
+- 7 day-of-week columns: SAT | SUN | MON | TUE | WED | THU | FRI with calendar date numbers beneath (e.g. SAT=6, SUN=7, MON=8)
+- Hour values per cell (H:MM or H.HH format — treat the same; 2:00 = 2.0, 4:30 = 4.5)
+- A TOTAL column on the right — use this to verify your row sums
+
+=== STEP 2: COMPUTE EXACT DATES ===
+- Find "WEEK OF" in the header. This date is ALWAYS a SATURDAY (the first day of the NetSuite week).
+- Map columns: SAT=WEEK_OF+0, SUN=+1, MON=+2, TUE=+3, WED=+4, THU=+5, FRI=+6
+- Use the date numbers shown in the column headers to confirm (e.g. "MON 8" means the 8th of the current month)
+- Output all dates as YYYY-MM-DD
+
+=== STEP 3: READ PROJECT CODES PRECISELY ===
+- Each Time Details row starts with a 15-character Salesforce ID, ALWAYS beginning with "006"
+- Read character-by-character — these are case-sensitive. Common visual confusion: 0 (zero) vs O (letter O), I vs l vs 1, Q vs O, B vs 8
+- The code ends where the project description text begins (usually after a space before "Randstad" or "Snowflake")
+- Also cross-check the "Enter Time" grid in the middle of the image where the same codes appear in the leftmost column
+
+=== OUTPUT FORMAT ===
+Return ONLY valid JSON (no markdown, no extra text):
 {
   "lines": [
     {
-      "worker": "Full Name",
+      "worker": "Full name from header",
       "work_date": "YYYY-MM-DD",
-      "project": "Project Name",
-      "project_code": "006GI00000OBhiL",
-      "hours": 8.0,
+      "project": "Full project name without the code prefix",
+      "project_code": "006GI00000P4aPt",
+      "hours": 2.0,
       "extraction_confidence": 0.95,
-      "raw_text_snippet": "brief description of source row"
+      "raw_text_snippet": "Time Details: 006GI00000P4aPt MON 9/8 = 2.00"
     }
   ]
 }
 
-Rules:
-- CRITICAL: List ALL project rows visible in the timesheet. Timesheets typically have 2-3 distinct project rows per day. Carefully scan every row even if project names look similar — each row is a separate entry and must be captured.
-- Each unique project row for each day must be its own JSON object. Do NOT merge or skip rows.
-- Extract the alphanumeric source-system code (e.g. 006GI00000OBhiL, 006GI00000P4aPt, 006Q0000000BRIL) that appears as a prefix or identifier on each project row into the "project_code" field. If no code is visible, set project_code to null.
-- Use exact project names as shown in the "project" field (without the code prefix).
-- Include every day/project combination visible, even if hours are 0
-- Dates must be YYYY-MM-DD format
-- Hours must be decimal numbers
-- extraction_confidence should reflect how clearly the value is readable (0.0-1.0)';
+=== EXTRACTION RULES ===
+- Extract every non-zero hour entry. One JSON object per (project × day) where hours > 0.
+- Do NOT skip project rows. If Time Details shows N rows, produce one object per non-zero cell across all N rows.
+- Worker name comes from the timesheet header (e.g. "Mike Agrawal (V)").
+- extraction_confidence: 0.95 if clearly readable, 0.75 if partially obscured.
+- Verify each row total matches the TOTAL column in Time Details before finalizing.';
 
     -- Call Claude 3.5 Sonnet multimodal with the image file
     SELECT SNOWFLAKE.CORTEX.COMPLETE(
         'claude-3-5-sonnet',
         :extraction_prompt,
-        TO_FILE('@DOCUMENTS_STAGE', :filename)
+        TO_FILE(:stage_ref, :filename)
     ) INTO llm_response;
 
     -- Strip markdown code fences if present
@@ -401,32 +421,49 @@ DECLARE
     extraction_prompt TEXT;
     res RESULTSET;
 BEGIN
-    extraction_prompt := 'You are a document extraction specialist. Extract structured timesheet data from this image.
+    extraction_prompt := 'You are extracting structured data from a NetSuite Weekly Timesheet screenshot.
 
-Return ONLY valid JSON (no markdown fences) in this exact format:
+=== STEP 1: FIND THE "Time Details" TABLE ===
+Scroll to the BOTTOM of the image. There is a "Time Details (N)" section. This is the CLEANEST data source — use it as your primary reference. It shows:
+- A left column: each project row beginning with a 15-char Salesforce code (e.g. "006GI00000P4aPt Randstad...")
+- 7 day-of-week columns: SAT | SUN | MON | TUE | WED | THU | FRI with calendar date numbers beneath (e.g. SAT=6, SUN=7, MON=8)
+- Hour values per cell (H:MM or H.HH format — treat the same; 2:00 = 2.0, 4:30 = 4.5)
+- A TOTAL column on the right — use this to verify your row sums
+
+=== STEP 2: COMPUTE EXACT DATES ===
+- Find "WEEK OF" in the header. This date is ALWAYS a SATURDAY (the first day of the NetSuite week).
+- Map columns: SAT=WEEK_OF+0, SUN=+1, MON=+2, TUE=+3, WED=+4, THU=+5, FRI=+6
+- Use the date numbers shown in the column headers to confirm (e.g. "MON 8" means the 8th of the current month)
+- Output all dates as YYYY-MM-DD
+
+=== STEP 3: READ PROJECT CODES PRECISELY ===
+- Each Time Details row starts with a 15-character Salesforce ID, ALWAYS beginning with "006"
+- Read character-by-character — these are case-sensitive. Common visual confusion: 0 (zero) vs O (letter O), I vs l vs 1, Q vs O, B vs 8
+- The code ends where the project description text begins (usually after a space before "Randstad" or "Snowflake")
+- Also cross-check the "Enter Time" grid in the middle of the image where the same codes appear in the leftmost column
+
+=== OUTPUT FORMAT ===
+Return ONLY valid JSON (no markdown, no extra text):
 {
   "lines": [
     {
-      "worker": "Full Name",
+      "worker": "Full name from header",
       "work_date": "YYYY-MM-DD",
-      "project": "Project Name",
-      "project_code": "006GI00000OBhiL",
-      "hours": 8.0,
+      "project": "Full project name without the code prefix",
+      "project_code": "006GI00000P4aPt",
+      "hours": 2.0,
       "extraction_confidence": 0.95,
-      "raw_text_snippet": "brief description of source row"
+      "raw_text_snippet": "Time Details: 006GI00000P4aPt MON 9/8 = 2.00"
     }
   ]
 }
 
-Rules:
-- CRITICAL: List ALL project rows visible in the timesheet. Timesheets typically have 2-3 distinct project rows per day. Carefully scan every row even if project names look similar — each row is a separate entry and must be captured.
-- Each unique project row for each day must be its own JSON object. Do NOT merge or skip rows.
-- Extract the alphanumeric source-system code (e.g. 006GI00000OBhiL, 006GI00000P4aPt, 006Q0000000BRIL) that appears as a prefix or identifier on each project row into the "project_code" field. If no code is visible, set project_code to null.
-- Use exact project names as shown in the "project" field (without the code prefix).
-- Include every day/project combination visible, even if hours are 0
-- Dates must be YYYY-MM-DD format
-- Hours must be decimal numbers
-- extraction_confidence should reflect how clearly the value is readable (0.0-1.0)';
+=== EXTRACTION RULES ===
+- Extract every non-zero hour entry. One JSON object per (project × day) where hours > 0.
+- Do NOT skip project rows. If Time Details shows N rows, produce one object per non-zero cell across all N rows.
+- Worker name comes from the timesheet header (e.g. "Mike Agrawal (V)").
+- extraction_confidence: 0.95 if clearly readable, 0.75 if partially obscured.
+- Verify each row total matches the TOTAL column in Time Details before finalizing.';
 
     -- Clean out old extracted data (idempotent re-extraction)
     DELETE FROM LEDGER_APPROVALS  WHERE doc_id IN (SELECT doc_id FROM RAW_DOCUMENTS);
@@ -444,7 +481,7 @@ Rules:
             SNOWFLAKE.CORTEX.COMPLETE(
                 'claude-3-5-sonnet',
                 :extraction_prompt,
-                TO_FILE('@DOCUMENTS_STAGE', REGEXP_REPLACE(d.file_path, '^.*/', ''))
+                TO_FILE(REGEXP_REPLACE(d.file_path, '/[^/]+$', ''), REGEXP_REPLACE(d.file_path, '^.*/', ''))
             ) AS llm_response
         FROM RAW_DOCUMENTS d
     ),

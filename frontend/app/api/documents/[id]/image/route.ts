@@ -32,7 +32,8 @@ export async function GET(
     // Only download if not already cached locally
     const cached = await access(localPath).then(() => true).catch(() => false);
     if (!cached) {
-      await runExecute(`GET @DOCUMENTS_STAGE/${filename} file://${IMAGE_DIR}/`);
+      // Use the full stage path from DB (e.g. @RECONCILIATION.PUBLIC.DOCUMENTS_STAGE_UNENC/file.jpg)
+      await runExecute(`GET ${stagePath} file://${IMAGE_DIR}/`);
     }
 
     const data = await readFile(localPath);

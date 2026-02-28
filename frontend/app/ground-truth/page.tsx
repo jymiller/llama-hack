@@ -32,6 +32,23 @@ function fmtDate(iso: string) {
   return `${DAY[d.getDay()]} ${d.getMonth() + 1}/${d.getDate()}`;
 }
 
+/**
+ * NetSuite weeks run SAT–FRI. DocIds like "9-6-2025" or "08-30-2025" are the
+ * WEEK OF date (always a Saturday). Returns all 7 YYYY-MM-DD strings for the week.
+ */
+function weekDatesFromDocId(docId: string): string[] {
+  const parts = docId.split("-");
+  if (parts.length !== 3) return [];
+  const [m, d, y] = parts;
+  const sat = new Date(`${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}T00:00:00`);
+  if (isNaN(sat.getTime())) return [];
+  return Array.from({ length: 7 }, (_, i) => {
+    const dt = new Date(sat);
+    dt.setDate(dt.getDate() + i);
+    return dt.toISOString().split("T")[0];
+  });
+}
+
 function parseHours(v: string): number {
   const n = parseFloat(v);
   return isNaN(n) ? 0 : n;
@@ -55,16 +72,19 @@ export default function GroundTruthPage() {
     [allLines, docId]
   );
 
-  // Unique sorted dates across all extracted lines for this doc
-  const dates = useMemo(
-    () =>
-      [
-        ...new Set(
-          docLines.map((l) => l.WORK_DATE).filter(Boolean) as string[]
-        ),
-      ].sort(),
-    [docLines]
-  );
+  // Always show all 7 days (SAT–FRI) derived from the docId week-of date,
+  // falling back to whatever dates appear in extracted lines.
+  const dates = useMemo(() => {
+    if (docId) {
+      const fromDoc = weekDatesFromDocId(docId);
+      if (fromDoc.length === 7) return fromDoc;
+    }
+    return [
+      ...new Set(
+        docLines.map((l) => l.WORK_DATE).filter(Boolean) as string[]
+      ),
+    ].sort();
+  }, [docId, docLines]);
 
   // Unique projects (preserve insertion order by first appearance)
   const projects = useMemo(() => {
