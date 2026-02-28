@@ -771,15 +771,20 @@ export default function GroundTruthPage() {
                 </table>
               )}
 
-              <Button
-                size="sm"
-                variant="outline"
-                className="mt-3"
-                onClick={addRow}
-              >
-                <Plus className="h-3.5 w-3.5 mr-1.5" />
-                Add project row
-              </Button>
+              <div className="mt-3 flex items-center justify-between">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={addRow}
+                >
+                  <Plus className="h-3.5 w-3.5 mr-1.5" />
+                  Add project row
+                </Button>
+                <Button onClick={handleSave} disabled={save.isPending}>
+                  <Save className="h-4 w-4 mr-2" />
+                  {save.isPending ? "Saving…" : "Save Ground Truth"}
+                </Button>
+              </div>
           </div>
         </div>
       )}
