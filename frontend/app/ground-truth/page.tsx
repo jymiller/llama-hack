@@ -194,12 +194,14 @@ function DocCard({
   lineCount,
   gtCount,
   selected,
+  unsaved,
   onClick,
 }: {
   doc: RawDocument;
   lineCount: number;
   gtCount: number;
   selected: boolean;
+  unsaved: boolean;
   onClick: () => void;
 }) {
   const hasGT = gtCount > 0;
@@ -208,7 +210,9 @@ function DocCard({
     <div
       onClick={onClick}
       className={`rounded-lg border cursor-pointer transition-all overflow-hidden ${
-        selected
+        unsaved
+          ? "border-yellow-400 ring-2 ring-yellow-200"
+          : selected
           ? "border-blue-500 ring-2 ring-blue-200"
           : "border-slate-200 hover:border-slate-300 hover:shadow-sm"
       }`}
@@ -223,21 +227,30 @@ function DocCard({
             (e.target as HTMLImageElement).style.display = "none";
           }}
         />
+        {unsaved && (
+          <div className="absolute inset-0 bg-yellow-400/10 pointer-events-none" />
+        )}
         <div
           className={`absolute top-2 right-2 flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold ${
-            hasGT
+            unsaved
+              ? "bg-yellow-100 text-yellow-700"
+              : hasGT
               ? "bg-green-100 text-green-700"
               : hasLines
               ? "bg-amber-100 text-amber-700"
               : "bg-slate-200 text-slate-500"
           }`}
         >
-          {hasGT ? (
+          {unsaved ? (
+            <RotateCcw className="h-3 w-3" />
+          ) : hasGT ? (
             <CheckSquare className="h-3 w-3" />
           ) : (
             <Square className="h-3 w-3" />
           )}
-          {hasGT
+          {unsaved
+            ? "Unsaved"
+            : hasGT
             ? `${gtCount} GT rows`
             : hasLines
             ? `${lineCount} extracted`
@@ -269,6 +282,7 @@ export default function GroundTruthPage() {
   const save = useSaveGroundTruth();
 
   const [rows, setRows] = useState<GTRow[]>([]);
+  const [needsSave, setNeedsSave] = useState(false);
 
   // Canonical active projects for the Select dropdown
   const canonicalProjects = useMemo(
@@ -483,11 +497,17 @@ export default function GroundTruthPage() {
       }
     }
 
-    toast.promise(save.mutateAsync({ docId: selectedDocId, lines }), {
-      loading: "Saving ground truth…",
-      success: `Saved ${lines.length} rows`,
-      error: (err) => `Save failed: ${err}`,
-    });
+    toast.promise(
+      save.mutateAsync({ docId: selectedDocId, lines }).then((r) => {
+        setNeedsSave(false);
+        return r;
+      }),
+      {
+        loading: "Saving ground truth…",
+        success: `Saved ${lines.length} rows`,
+        error: (err) => `Save failed: ${err}`,
+      }
+    );
   }
 
   return (
@@ -514,11 +534,13 @@ export default function GroundTruthPage() {
             lineCount={linesByDoc[String(doc.DOC_ID)]?.length ?? 0}
             gtCount={gtCountByDoc[String(doc.DOC_ID)] ?? 0}
             selected={selectedDocId === String(doc.DOC_ID)}
-            onClick={() =>
+            unsaved={needsSave && selectedDocId === String(doc.DOC_ID)}
+            onClick={() => {
+              setNeedsSave(false);
               setSelectedDocId((prev) =>
                 prev === String(doc.DOC_ID) ? null : String(doc.DOC_ID)
-              )
-            }
+              );
+            }}
           />
         ))}
       </div>
@@ -543,7 +565,7 @@ export default function GroundTruthPage() {
             </div>
             <div className="flex items-center gap-2">
               <button
-                onClick={() => setRows(buildRowsFromExtraction())}
+                onClick={() => { setRows(buildRowsFromExtraction()); setNeedsSave(true); }}
                 className="flex items-center gap-1 text-xs text-slate-500 hover:text-amber-600 transition-colors px-2 py-1 rounded hover:bg-amber-50"
                 title="Discard saved GT and reset grid to AI-extracted values"
               >
