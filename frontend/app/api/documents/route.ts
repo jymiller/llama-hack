@@ -49,13 +49,16 @@ export async function POST(req: NextRequest) {
       await unlink(tmpPath).catch(() => {});
     }
 
-    // Upsert RAW_DOCUMENTS — update ingested_ts on re-upload so the timestamp reflects the latest file
+    // Upsert RAW_DOCUMENTS — update ingested_ts on re-upload so the timestamp reflects the latest file.
+    // DOC_ID is derived from the filename without extension (e.g. "08-30-2025.jpg" → "08-30-2025").
     await runExecute(
       `MERGE INTO RAW_DOCUMENTS t
-       USING (SELECT ? AS file_path, ? AS doc_type) s ON t.FILE_PATH = s.file_path
+       USING (SELECT ? AS file_path, ? AS doc_type,
+                     REGEXP_REPLACE(SPLIT_PART(?, '/', -1), '\\\\.[^.]+$', '') AS doc_id) s
+         ON t.FILE_PATH = s.file_path
        WHEN MATCHED THEN UPDATE SET doc_type = s.doc_type, ingested_ts = CURRENT_TIMESTAMP()
-       WHEN NOT MATCHED THEN INSERT (FILE_PATH, DOC_TYPE) VALUES (s.file_path, s.doc_type)`,
-      [stagePath, docType]
+       WHEN NOT MATCHED THEN INSERT (DOC_ID, FILE_PATH, DOC_TYPE) VALUES (s.doc_id, s.file_path, s.doc_type)`,
+      [stagePath, docType, stagePath]
     );
 
     const rows = await runQuery<RawDocument>(
