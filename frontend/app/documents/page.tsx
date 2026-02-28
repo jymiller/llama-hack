@@ -6,7 +6,6 @@ import { toast } from "sonner";
 import { Upload, FileText } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
 import { DataTable } from "@/components/data-table";
-import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -75,13 +74,6 @@ export default function DocumentsPage() {
             : "bg-orange-100 text-orange-800";
         return <Badge className={color}>{v.replace(/_/g, " ")}</Badge>;
       },
-    },
-    {
-      accessorKey: "PROCESSED",
-      header: "OCR",
-      cell: ({ getValue }) => (
-        <StatusBadge status={getValue<boolean>() ? "PASS" : "PENDING"} />
-      ),
     },
     {
       accessorKey: "INGESTED_TS",
