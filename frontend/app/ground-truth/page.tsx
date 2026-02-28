@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { toast } from "sonner";
 import { Save } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
@@ -20,18 +20,21 @@ import {
   useSaveGroundTruth,
 } from "@/hooks/queries";
 import { ExtractedLine, GroundTruthLine } from "@/lib/types";
-import { toISODate } from "@/lib/utils";
 
-// Stable empty arrays to avoid triggering useEffect on every render while queries load
+// Stable empty arrays — prevents useEffect infinite loop from new [] refs each render
 const EMPTY_LINES: ExtractedLine[] = [];
 const EMPTY_GT: GroundTruthLine[] = [];
 
-interface GridRow {
-  WORKER: string;
-  WORK_DATE: string;
-  PROJECT: string;
-  PROJECT_CODE: string;
-  HOURS: string;
+const DAY = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+function fmtDate(iso: string) {
+  const d = new Date(iso + "T00:00:00");
+  return `${DAY[d.getDay()]} ${d.getMonth() + 1}/${d.getDate()}`;
+}
+
+function parseHours(v: string): number {
+  const n = parseFloat(v);
+  return isNaN(n) ? 0 : n;
 }
 
 export default function GroundTruthPage() {
@@ -43,82 +46,111 @@ export default function GroundTruthPage() {
   const { data: existing = EMPTY_GT } = useGroundTruth(docId);
   const save = useSaveGroundTruth();
 
-  const [grid, setGrid] = useState<GridRow[]>([]);
+  // hours[projectKey][date] = string value for the input
+  const [hours, setHours] = useState<Record<string, Record<string, string>>>({});
 
-  // Build grid from extracted lines whenever doc or extracted lines change
-  useEffect(() => {
-    if (!docId) return;
+  // Extracted lines for the selected document
+  const docLines = useMemo(
+    () => allLines.filter((l) => l.DOC_ID === docId),
+    [allLines, docId]
+  );
 
-    const docLines = allLines.filter((l) => l.DOC_ID === docId);
+  // Unique sorted dates across all extracted lines for this doc
+  const dates = useMemo(
+    () =>
+      [
+        ...new Set(
+          docLines.map((l) => l.WORK_DATE).filter(Boolean) as string[]
+        ),
+      ].sort(),
+    [docLines]
+  );
 
-    // Collect unique (worker, date) combos from extraction
-    const seen = new Set<string>();
-    const rows: GridRow[] = [];
+  // Unique projects (preserve insertion order by first appearance)
+  const projects = useMemo(() => {
+    const seen = new Map<
+      string,
+      { key: string; project: string; project_code: string; worker: string }
+    >();
     for (const l of docLines) {
-      const key = `${l.WORKER}|${l.WORK_DATE}`;
+      const key = l.PROJECT_CODE || l.PROJECT || "";
       if (!seen.has(key)) {
-        seen.add(key);
-
-        // Prefer existing GT if available
-        const gt = existing.find(
-          (e) => e.WORKER === l.WORKER && e.WORK_DATE === l.WORK_DATE
-        );
-        rows.push({
-          WORKER: gt?.WORKER ?? l.WORKER ?? "",
-          WORK_DATE: gt?.WORK_DATE ?? l.WORK_DATE ?? toISODate(new Date()),
-          PROJECT: gt?.PROJECT ?? l.PROJECT ?? "",
-          PROJECT_CODE: gt?.PROJECT_CODE ?? l.PROJECT_CODE ?? "",
-          HOURS: String(gt?.HOURS ?? l.HOURS ?? ""),
+        seen.set(key, {
+          key,
+          project: l.PROJECT ?? "",
+          project_code: l.PROJECT_CODE ?? "",
+          worker: l.WORKER ?? "",
         });
       }
     }
+    return [...seen.values()];
+  }, [docLines]);
 
-    // If no extracted lines, fall back to existing GT only
-    if (rows.length === 0) {
-      for (const g of existing) {
-        rows.push({
-          WORKER: g.WORKER,
-          WORK_DATE: g.WORK_DATE,
-          PROJECT: g.PROJECT ?? "",
-          PROJECT_CODE: g.PROJECT_CODE ?? "",
-          HOURS: String(g.HOURS),
-        });
-      }
+  // Initialise the hours grid from extracted lines (pre-populated) + existing GT (overrides)
+  useEffect(() => {
+    if (!docId || docLines.length === 0) {
+      setHours({});
+      return;
     }
 
-    setGrid(rows);
-  }, [docId, allLines, existing]);
+    const init: Record<string, Record<string, string>> = {};
 
-  function updateCell(idx: number, field: keyof GridRow, value: string) {
-    setGrid((prev) =>
-      prev.map((row, i) => (i === idx ? { ...row, [field]: value } : row))
+    for (const l of docLines) {
+      const key = l.PROJECT_CODE || l.PROJECT || "";
+      const date = l.WORK_DATE ?? "";
+      if (!date) continue;
+      if (!init[key]) init[key] = {};
+
+      // Prefer analyst-entered GT over extracted value
+      const gt = existing.find(
+        (g) => g.WORK_DATE === date && g.PROJECT === l.PROJECT
+      );
+      init[key][date] = String(gt?.HOURS ?? l.HOURS ?? "");
+    }
+
+    setHours(init);
+  }, [docId, docLines, existing]);
+
+  function setCell(projectKey: string, date: string, value: string) {
+    setHours((prev) => ({
+      ...prev,
+      [projectKey]: { ...(prev[projectKey] ?? {}), [date]: value },
+    }));
+  }
+
+  function rowTotal(key: string) {
+    return dates.reduce((s, d) => s + parseHours(hours[key]?.[d] ?? ""), 0);
+  }
+
+  function colTotal(date: string) {
+    return projects.reduce(
+      (s, p) => s + parseHours(hours[p.key]?.[date] ?? ""),
+      0
     );
   }
 
-  function addRow() {
-    setGrid((prev) => [
-      ...prev,
-      { WORKER: "", WORK_DATE: toISODate(new Date()), PROJECT: "", PROJECT_CODE: "", HOURS: "" },
-    ]);
-  }
-
-  function removeRow(idx: number) {
-    setGrid((prev) => prev.filter((_, i) => i !== idx));
-  }
+  const grandTotal = projects.reduce((s, p) => s + rowTotal(p.key), 0);
 
   async function handleSave() {
     if (!docId) return;
-    const lines: Omit<GroundTruthLine, "GT_ID" | "ENTERED_AT">[] = grid
-      .filter((r) => r.WORKER && r.WORK_DATE && r.HOURS)
-      .map((r) => ({
-        DOC_ID: docId!,
-        WORKER: r.WORKER,
-        WORK_DATE: r.WORK_DATE,
-        PROJECT: r.PROJECT || null,
-        PROJECT_CODE: r.PROJECT_CODE || null,
-        HOURS: parseFloat(r.HOURS),
-        ENTERED_BY: "analyst",
-      }));
+    const lines: Omit<GroundTruthLine, "GT_ID" | "ENTERED_AT">[] = [];
+
+    for (const p of projects) {
+      for (const date of dates) {
+        const h = parseHours(hours[p.key]?.[date] ?? "");
+        if (h > 0) {
+          lines.push({
+            DOC_ID: docId,
+            WORKER: p.worker,
+            WORK_DATE: date,
+            PROJECT: p.project || null,
+            PROJECT_CODE: p.project_code || null,
+            HOURS: h,
+            ENTERED_BY: "analyst",
+          });
+        }
+      }
+    }
 
     toast.promise(save.mutateAsync({ docId, lines }), {
       loading: "Saving ground truth…",
@@ -128,10 +160,10 @@ export default function GroundTruthPage() {
   }
 
   return (
-    <div>
+    <div className="flex flex-col h-[calc(100vh-4rem)]">
       <PageHeader
         title="Ground Truth Entry"
-        description="Enter correct timesheet data to measure extraction accuracy."
+        description="View the timesheet image and confirm hours in the matching grid."
         actions={
           <Button onClick={handleSave} disabled={!docId || save.isPending}>
             <Save className="h-4 w-4 mr-2" />
@@ -140,15 +172,15 @@ export default function GroundTruthPage() {
         }
       />
 
-      <div className="mb-6">
+      <div className="mb-4">
         <Select value={selectedDoc} onValueChange={setSelectedDoc}>
-          <SelectTrigger className="w-72">
+          <SelectTrigger className="w-60">
             <SelectValue placeholder="Select document…" />
           </SelectTrigger>
           <SelectContent>
             {docs.map((d) => (
-              <SelectItem key={d.DOC_ID} value={String(d.DOC_ID)}>
-                [{d.DOC_ID}] {d.FILE_NAME}
+              <SelectItem key={d.DOC_ID} value={d.DOC_ID}>
+                {d.DOC_ID}
               </SelectItem>
             ))}
           </SelectContent>
@@ -156,70 +188,121 @@ export default function GroundTruthPage() {
       </div>
 
       {docId && (
-        <>
-          <div className="rounded-md border overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-muted/50">
-                <tr>
-                  {["Worker", "Date", "Project", "Code", "Hours", ""].map(
-                    (h) => (
+        <div className="flex gap-4 flex-1 min-h-0 overflow-hidden">
+
+          {/* ── Left: Timesheet image ── */}
+          <div className="w-1/2 overflow-auto rounded-lg border bg-muted/20">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={`/api/documents/${docId}/image`}
+              alt={`Timesheet ${docId}`}
+              className="w-full h-auto"
+            />
+          </div>
+
+          {/* ── Right: Project × Date grid ── */}
+          <div className="w-1/2 overflow-auto">
+            {projects.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                No extracted lines for this document yet.
+              </p>
+            ) : (
+              <table className="w-full text-xs border-collapse">
+                <thead>
+                  <tr className="bg-slate-100">
+                    <th className="px-3 py-2 text-left font-semibold border border-slate-300 sticky left-0 bg-slate-100 min-w-[220px]">
+                      Project
+                    </th>
+                    {dates.map((d) => (
                       <th
-                        key={h}
-                        className="px-3 py-2 text-left font-medium text-muted-foreground"
+                        key={d}
+                        className="px-2 py-2 text-center font-semibold border border-slate-300 min-w-[72px] whitespace-nowrap"
                       >
-                        {h}
+                        {fmtDate(d)}
                       </th>
-                    )
-                  )}
-                </tr>
-              </thead>
-              <tbody>
-                {grid.map((row, i) => (
-                  <tr key={i} className="border-t">
-                    {(
-                      [
-                        "WORKER",
-                        "WORK_DATE",
-                        "PROJECT",
-                        "PROJECT_CODE",
-                        "HOURS",
-                      ] as (keyof GridRow)[]
-                    ).map((field) => (
-                      <td key={field} className="px-2 py-1">
-                        <Input
-                          value={row[field]}
-                          onChange={(e) => updateCell(i, field, e.target.value)}
-                          type={
-                            field === "WORK_DATE"
-                              ? "date"
-                              : field === "HOURS"
-                              ? "number"
-                              : "text"
-                          }
-                          className="h-8 text-sm"
-                          step={field === "HOURS" ? "0.5" : undefined}
-                        />
-                      </td>
                     ))}
-                    <td className="px-2 py-1">
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="text-red-500 hover:text-red-700"
-                        onClick={() => removeRow(i)}
-                      >
-                        ×
-                      </Button>
+                    <th className="px-2 py-2 text-center font-semibold border border-slate-300 bg-blue-50 min-w-[60px]">
+                      Total
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {projects.map((p, i) => (
+                    <tr
+                      key={p.key}
+                      className={i % 2 === 0 ? "bg-white" : "bg-slate-50"}
+                    >
+                      <td className="px-3 py-2 border border-slate-200 sticky left-0 bg-inherit">
+                        <div className="font-mono text-[10px] text-blue-700 mb-0.5">
+                          {p.project_code}
+                        </div>
+                        <div
+                          className="text-xs leading-tight max-w-[200px] truncate text-slate-700"
+                          title={p.project}
+                        >
+                          {p.project}
+                        </div>
+                      </td>
+                      {dates.map((d) => {
+                        const val = hours[p.key]?.[d] ?? "";
+                        const n = parseHours(val);
+                        const hasValue = n > 0;
+                        return (
+                          <td
+                            key={d}
+                            className={`border border-slate-200 p-1 text-center ${
+                              hasValue ? "bg-green-50" : ""
+                            }`}
+                          >
+                            <Input
+                              type="number"
+                              min="0"
+                              max="24"
+                              step="0.5"
+                              value={val}
+                              onChange={(e) =>
+                                setCell(p.key, d, e.target.value)
+                              }
+                              className={`h-7 w-16 text-center text-xs px-1 ${
+                                hasValue
+                                  ? "border-green-300 bg-green-50"
+                                  : "border-slate-200"
+                              }`}
+                            />
+                          </td>
+                        );
+                      })}
+                      <td className="border border-slate-200 px-2 py-2 text-center font-semibold bg-blue-50 text-blue-800">
+                        {rowTotal(p.key) > 0 ? rowTotal(p.key) : "—"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr className="bg-slate-100 font-semibold">
+                    <td className="px-3 py-2 border border-slate-300 sticky left-0 bg-slate-100 text-slate-700">
+                      Daily Total
+                    </td>
+                    {dates.map((d) => {
+                      const t = colTotal(d);
+                      return (
+                        <td
+                          key={d}
+                          className="border border-slate-300 px-2 py-2 text-center text-slate-800"
+                        >
+                          {t > 0 ? t : "—"}
+                        </td>
+                      );
+                    })}
+                    <td className="border border-slate-300 px-2 py-2 text-center bg-blue-100 text-blue-900 font-bold">
+                      {grandTotal > 0 ? grandTotal : "—"}
                     </td>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </tfoot>
+              </table>
+            )}
           </div>
-          <Button variant="outline" size="sm" className="mt-3" onClick={addRow}>
-            + Add Row
-          </Button>
-        </>
+        </div>
       )}
     </div>
   );
