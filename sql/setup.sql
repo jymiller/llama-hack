@@ -154,14 +154,17 @@ SELECT
 FROM matched;
 
 -- 10. TRUSTED_LEDGER view - only approved/corrected lines
+-- project_code is resolved through PROJECT_CODE_MERGES (non-destructive merge).
+-- APPLY_PROJECT_MERGES proc performs the hard rewrite on EXTRACTED_LINES.
 CREATE OR REPLACE VIEW TRUSTED_LEDGER AS
 SELECT
     e.line_id,
     e.doc_id,
-    COALESCE(a.corrected_worker, e.worker) AS worker,
-    COALESCE(a.corrected_date, e.work_date) AS work_date,
-    COALESCE(a.corrected_project, e.project) AS project,
-    COALESCE(a.corrected_hours, e.hours) AS hours,
+    COALESCE(a.corrected_worker, e.worker)                          AS worker,
+    COALESCE(a.corrected_date, e.work_date)                         AS work_date,
+    COALESCE(m.target_code, e.project_code)                         AS project_code,
+    COALESCE(cp.project_name, COALESCE(a.corrected_project, e.project)) AS project,
+    COALESCE(a.corrected_hours, e.hours)                            AS hours,
     a.decision AS approval_status,
     a.reviewer,
     a.reviewed_ts,
@@ -169,6 +172,8 @@ SELECT
     e.raw_text_snippet
 FROM EXTRACTED_LINES e
 INNER JOIN APPROVED_LINES a ON e.line_id = a.line_id
+LEFT  JOIN PROJECT_CODE_MERGES m  ON m.source_code  = e.project_code
+LEFT  JOIN CURATED_PROJECTS    cp ON cp.project_code = COALESCE(m.target_code, e.project_code)
 WHERE a.decision IN ('APPROVED', 'CORRECTED');
 
 -- 11. Create stored procedure to run OCR on staged documents
@@ -898,6 +903,59 @@ BEGIN
 
     RETURN 'SUCCESS: Added ' || :new_projects::VARCHAR || ' project(s), '
         || :new_workers::VARCHAR || ' worker(s) to curated master';
+EXCEPTION
+    WHEN OTHER THEN
+        RETURN 'ERROR: ' || SQLERRM;
+END;
+$$;
+
+
+-- ============================================================
+-- 23. PROJECT_CODE_MERGES - Audit trail of source→target code merges (curated)
+-- Records every deliberate merge of a misread/duplicate code to its canonical form.
+-- UNIQUE on source_code: each misread code has exactly one canonical target.
+-- ============================================================
+CREATE TABLE IF NOT EXISTS PROJECT_CODE_MERGES (
+    merge_id     VARCHAR(100)  NOT NULL PRIMARY KEY DEFAULT UUID_STRING(),
+    source_code  VARCHAR(20)   NOT NULL UNIQUE,   -- misread / duplicate code
+    target_code  VARCHAR(20)   NOT NULL,           -- canonical code to merge into
+    merge_reason VARCHAR(1000),                    -- e.g. "OCR misread G→Q (edit_dist=1)"
+    merged_by    VARCHAR(200)  DEFAULT CURRENT_USER(),
+    merged_at    TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP()
+);
+
+-- ============================================================
+-- 24. APPLY_PROJECT_MERGES - Hard-write all active merge mappings to EXTRACTED_LINES.
+-- Call this after creating or updating merges to propagate corrections to the raw data.
+-- Safe to call repeatedly (idempotent: already-merged rows are no-ops).
+-- ============================================================
+CREATE OR REPLACE PROCEDURE APPLY_PROJECT_MERGES()
+RETURNS VARCHAR
+LANGUAGE SQL
+AS
+$$
+DECLARE
+    rows_updated INTEGER;
+BEGIN
+    UPDATE EXTRACTED_LINES el
+    SET
+        project_code = m.target_code,
+        project      = cp.project_name
+    FROM PROJECT_CODE_MERGES m
+    JOIN CURATED_PROJECTS cp ON cp.project_code = m.target_code
+    WHERE el.project_code = m.source_code;
+
+    rows_updated := SQLROWCOUNT;
+
+    -- Mark merged source codes as inactive in the curated master
+    UPDATE CURATED_PROJECTS
+    SET is_active = FALSE,
+        curation_note = COALESCE(curation_note, '') || ' | Merged into ' || m.target_code
+    FROM PROJECT_CODE_MERGES m
+    WHERE CURATED_PROJECTS.project_code = m.source_code
+      AND CURATED_PROJECTS.is_active = TRUE;
+
+    RETURN 'SUCCESS: Updated ' || :rows_updated::VARCHAR || ' extracted line(s) via project code merges';
 EXCEPTION
     WHEN OTHER THEN
         RETURN 'ERROR: ' || SQLERRM;

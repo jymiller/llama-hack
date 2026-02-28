@@ -102,6 +102,17 @@ export interface PipelineStatus {
   APPROVAL_DONE: boolean;
 }
 
+export interface ProjectCodeMerge {
+  MERGE_ID: string;
+  SOURCE_CODE: string;
+  TARGET_CODE: string;
+  SOURCE_NAME: string | null;
+  TARGET_NAME: string | null;
+  MERGE_REASON: string | null;
+  MERGED_BY: string | null;
+  MERGED_AT: string;
+}
+
 export interface CuratedProject {
   PROJECT_CODE: string;
   PROJECT_NAME: string | null;

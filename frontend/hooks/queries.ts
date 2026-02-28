@@ -279,6 +279,67 @@ export function useConfirmWorker() {
   });
 }
 
+export function useProjectMerges() {
+  return useQuery<import("@/lib/types").ProjectCodeMerge[]>({
+    queryKey: ["project-merges"],
+    queryFn: () => fetchJson("/api/master-data/merges"),
+  });
+}
+
+export function useCreateMerge() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: {
+      source_code: string;
+      target_code: string;
+      merge_reason?: string;
+    }) =>
+      fetch("/api/master-data/merges", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      }).then((r) => {
+        if (!r.ok) return r.json().then((e) => Promise.reject(e.error));
+        return r.json();
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["project-merges"] });
+      qc.invalidateQueries({ queryKey: ["master-projects"] });
+    },
+  });
+}
+
+export function useDeleteMerge() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (mergeId: string) =>
+      fetch(`/api/master-data/merges/${mergeId}`, { method: "DELETE" }).then((r) => {
+        if (!r.ok) return r.json().then((e) => Promise.reject(e.error));
+        return r.json();
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["project-merges"] });
+      qc.invalidateQueries({ queryKey: ["master-projects"] });
+    },
+  });
+}
+
+export function useApplyMerges() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      fetch("/api/master-data/merges/apply", { method: "POST" }).then((r) => {
+        if (!r.ok) return r.json().then((e) => Promise.reject(e.error));
+        return r.json();
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["project-merges"] });
+      qc.invalidateQueries({ queryKey: ["master-projects"] });
+      qc.invalidateQueries({ queryKey: ["extraction"] });
+    },
+  });
+}
+
 export function useSyncMaster() {
   const qc = useQueryClient();
   return useMutation({

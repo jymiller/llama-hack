@@ -2,20 +2,32 @@
 
 import { useState } from "react";
 import { toast } from "sonner";
-import { RefreshCw, CheckCircle, AlertTriangle, Circle } from "lucide-react";
+import { RefreshCw, CheckCircle, AlertTriangle, Circle, GitMerge, Trash2 } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   useMasterProjects,
   useMasterWorkers,
   useConfirmProject,
   useConfirmWorker,
   useSyncMaster,
+  useProjectMerges,
+  useCreateMerge,
+  useDeleteMerge,
+  useApplyMerges,
 } from "@/hooks/queries";
-import { CuratedProject, CuratedWorker } from "@/lib/types";
+import { CuratedProject, CuratedWorker, ProjectCodeSuspect } from "@/lib/types";
 
-type Tab = "projects" | "workers";
+type Tab = "projects" | "workers" | "merges";
 
 function SourceBadge({ source }: { source: string }) {
   if (source === "fuzzy_match")
@@ -47,18 +59,76 @@ function ConfirmedIcon({ confirmed }: { confirmed: boolean }) {
 
 export default function MasterDataPage() {
   const [tab, setTab] = useState<Tab>("projects");
+  const [mergeSource, setMergeSource] = useState("");
+  const [mergeTarget, setMergeTarget] = useState("");
+  const [mergeReason, setMergeReason] = useState("");
 
   const { data: projectData, isLoading: projLoading } = useMasterProjects();
   const { data: workerData, isLoading: wrkLoading } = useMasterWorkers();
+  const { data: merges = [] } = useProjectMerges();
   const confirmProject = useConfirmProject();
   const confirmWorker = useConfirmWorker();
   const sync = useSyncMaster();
+  const createMerge = useCreateMerge();
+  const deleteMerge = useDeleteMerge();
+  const applyMerges = useApplyMerges();
 
   function handleSync() {
     toast.promise(sync.mutateAsync(), {
       loading: "Syncing master data from extracted lines…",
       success: (d) => d.message ?? "Sync complete",
       error: (e) => `Sync failed: ${e}`,
+    });
+  }
+
+  function handleCreateMergeFromSuspect(suspect: ProjectCodeSuspect) {
+    const reason = `OCR misread — edit distance ${suspect.EDIT_DIST} from confirmed code '${suspect.MASTER_CODE}'`;
+    toast.promise(
+      createMerge.mutateAsync({
+        source_code: suspect.EXTRACTED_CODE,
+        target_code: suspect.MASTER_CODE,
+        merge_reason: reason,
+      }),
+      {
+        loading: "Creating merge…",
+        success: `${suspect.EXTRACTED_CODE} → ${suspect.MASTER_CODE} merge created`,
+        error: (e) => `Error: ${e}`,
+      }
+    );
+  }
+
+  function handleCreateMerge() {
+    if (!mergeSource || !mergeTarget) return;
+    toast.promise(
+      createMerge.mutateAsync({
+        source_code: mergeSource,
+        target_code: mergeTarget,
+        merge_reason: mergeReason || undefined,
+      }),
+      {
+        loading: "Creating merge…",
+        success: `${mergeSource} → ${mergeTarget} merge created`,
+        error: (e) => `Error: ${e}`,
+      }
+    );
+    setMergeSource("");
+    setMergeTarget("");
+    setMergeReason("");
+  }
+
+  function handleDeleteMerge(mergeId: string, sourceCode: string) {
+    toast.promise(deleteMerge.mutateAsync(mergeId), {
+      loading: "Removing merge…",
+      success: `Merge for ${sourceCode} removed`,
+      error: (e) => `Error: ${e}`,
+    });
+  }
+
+  function handleApplyMerges() {
+    toast.promise(applyMerges.mutateAsync(), {
+      loading: "Applying merges to extracted lines…",
+      success: (d) => d.message ?? "Merges applied",
+      error: (e) => `Error: ${e}`,
     });
   }
 
@@ -100,16 +170,24 @@ export default function MasterDataPage() {
         title="Master Data"
         description="Curated reference lists for project codes and workers. Confirm auto-extracted entries and review fuzzy-match suspects."
         actions={
-          <Button variant="outline" onClick={handleSync} disabled={sync.isPending}>
-            <RefreshCw className="h-4 w-4 mr-2" />
-            Sync from Extraction
-          </Button>
+          <div className="flex gap-2">
+            {tab === "merges" && (
+              <Button onClick={handleApplyMerges} disabled={applyMerges.isPending || merges.length === 0}>
+                <GitMerge className="h-4 w-4 mr-2" />
+                Apply Merges to Data
+              </Button>
+            )}
+            <Button variant="outline" onClick={handleSync} disabled={sync.isPending}>
+              <RefreshCw className="h-4 w-4 mr-2" />
+              Sync from Extraction
+            </Button>
+          </div>
         }
       />
 
       {/* Tabs */}
       <div className="flex gap-1 mb-6 border-b border-slate-200">
-        {(["projects", "workers"] as Tab[]).map((t) => (
+        {(["projects", "workers", "merges"] as Tab[]).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -119,9 +197,9 @@ export default function MasterDataPage() {
                 : "border-transparent text-slate-500 hover:text-slate-800"
             }`}
           >
-            {t === "projects"
-              ? `Projects (${projects.length})`
-              : `Workers (${workers.length})`}
+            {t === "projects" ? `Projects (${projects.length})`
+              : t === "workers" ? `Workers (${workers.length})`
+              : `Merges (${merges.length})`}
           </button>
         ))}
       </div>
@@ -275,6 +353,190 @@ export default function MasterDataPage() {
                 </tbody>
               </table>
             )}
+          </section>
+        </div>
+      )}
+
+      {/* ── Merges tab ── */}
+      {tab === "merges" && (
+        <div className="space-y-6">
+
+          {/* Suggested merges from suspect view */}
+          {projectSuspects.length > 0 && (
+            <section>
+              <h3 className="text-sm font-semibold text-slate-700 mb-2 flex items-center gap-2">
+                <AlertTriangle className="h-4 w-4 text-amber-500" />
+                Suggested merges from OCR suspects ({projectSuspects.filter(
+                  (s) => !merges.some((m) => m.SOURCE_CODE === s.EXTRACTED_CODE)
+                ).length} pending)
+              </h3>
+              <table className="w-full text-xs border-collapse">
+                <thead>
+                  <tr className="bg-amber-50 text-left">
+                    <th className="px-3 py-2 border border-amber-200 font-semibold">Extracted (misread)</th>
+                    <th className="px-3 py-2 border border-amber-200 font-semibold">→ Canonical code</th>
+                    <th className="px-3 py-2 border border-amber-200 font-semibold">Canonical name</th>
+                    <th className="px-3 py-2 border border-amber-200 font-semibold">Edit dist</th>
+                    <th className="px-3 py-2 border border-amber-200 font-semibold">Doc</th>
+                    <th className="px-3 py-2 border border-amber-200 font-semibold">Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {projectSuspects.map((s) => {
+                    const alreadyMerged = merges.some((m) => m.SOURCE_CODE === s.EXTRACTED_CODE);
+                    return (
+                      <tr key={s.LINE_ID} className={alreadyMerged ? "bg-green-50 opacity-60" : "bg-white"}>
+                        <td className="px-3 py-2 border border-slate-200 font-mono text-[11px] text-red-700">
+                          {s.EXTRACTED_CODE}
+                        </td>
+                        <td className="px-3 py-2 border border-slate-200 font-mono text-[11px] text-green-700">
+                          {s.MASTER_CODE}
+                        </td>
+                        <td className="px-3 py-2 border border-slate-200 max-w-[220px]">
+                          <div className="truncate text-[10px]" title={s.MASTER_NAME ?? ""}>{s.MASTER_NAME}</div>
+                        </td>
+                        <td className="px-3 py-2 border border-slate-200 text-center">{s.EDIT_DIST}</td>
+                        <td className="px-3 py-2 border border-slate-200 text-slate-500">{s.DOC_ID}</td>
+                        <td className="px-3 py-2 border border-slate-200">
+                          {alreadyMerged ? (
+                            <span className="text-[10px] text-green-600">merged</span>
+                          ) : (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-6 text-[11px] px-2"
+                              onClick={() => handleCreateMergeFromSuspect(s)}
+                              disabled={createMerge.isPending}
+                            >
+                              Create merge
+                            </Button>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </section>
+          )}
+
+          {/* Active merges */}
+          <section>
+            <h3 className="text-sm font-semibold text-slate-700 mb-2">
+              Active merges ({merges.length})
+            </h3>
+            {merges.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No merges defined yet.</p>
+            ) : (
+              <table className="w-full text-xs border-collapse">
+                <thead>
+                  <tr className="bg-slate-100 text-left">
+                    <th className="px-3 py-2 border border-slate-200 font-semibold">Source (misread)</th>
+                    <th className="px-3 py-2 border border-slate-200 font-semibold">→ Target (canonical)</th>
+                    <th className="px-3 py-2 border border-slate-200 font-semibold">Target name</th>
+                    <th className="px-3 py-2 border border-slate-200 font-semibold">Reason</th>
+                    <th className="px-3 py-2 border border-slate-200 font-semibold">Merged at</th>
+                    <th className="px-3 py-2 border border-slate-200 font-semibold"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {merges.map((m, i) => (
+                    <tr key={m.MERGE_ID} className={i % 2 === 0 ? "bg-white" : "bg-slate-50"}>
+                      <td className="px-3 py-2 border border-slate-200 font-mono text-[11px] text-red-700">
+                        {m.SOURCE_CODE}
+                        {m.SOURCE_NAME && (
+                          <div className="text-[9px] text-slate-400 font-sans truncate max-w-[160px]" title={m.SOURCE_NAME}>
+                            {m.SOURCE_NAME}
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 border border-slate-200 font-mono text-[11px] text-green-700">
+                        {m.TARGET_CODE}
+                      </td>
+                      <td className="px-3 py-2 border border-slate-200 max-w-[200px]">
+                        <div className="truncate text-[10px]" title={m.TARGET_NAME ?? ""}>{m.TARGET_NAME}</div>
+                      </td>
+                      <td className="px-3 py-2 border border-slate-200 text-slate-500 text-[10px] max-w-[200px]">
+                        <div className="truncate" title={m.MERGE_REASON ?? ""}>{m.MERGE_REASON ?? "—"}</div>
+                      </td>
+                      <td className="px-3 py-2 border border-slate-200 text-slate-400 text-[10px] whitespace-nowrap">
+                        {m.MERGED_AT ? new Date(m.MERGED_AT).toLocaleDateString() : "—"}
+                      </td>
+                      <td className="px-3 py-2 border border-slate-200">
+                        <button
+                          onClick={() => handleDeleteMerge(m.MERGE_ID, m.SOURCE_CODE)}
+                          disabled={deleteMerge.isPending}
+                          className="text-slate-400 hover:text-red-600 transition-colors"
+                          title="Remove merge"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </section>
+
+          {/* Manual merge form */}
+          <section>
+            <h3 className="text-sm font-semibold text-slate-700 mb-3">Manual merge</h3>
+            <div className="flex gap-3 items-end flex-wrap">
+              <div>
+                <p className="text-[11px] text-slate-500 mb-1">Source (misread code)</p>
+                <Select value={mergeSource} onValueChange={setMergeSource}>
+                  <SelectTrigger className="w-52 h-8 text-xs">
+                    <SelectValue placeholder="Select source…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {projects.map((p) => (
+                      <SelectItem key={p.PROJECT_CODE} value={p.PROJECT_CODE}>
+                        <span className="font-mono text-[11px]">{p.PROJECT_CODE}</span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="text-slate-400 pb-2 text-sm">→</div>
+              <div>
+                <p className="text-[11px] text-slate-500 mb-1">Target (canonical code)</p>
+                <Select value={mergeTarget} onValueChange={setMergeTarget}>
+                  <SelectTrigger className="w-52 h-8 text-xs">
+                    <SelectValue placeholder="Select target…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {projects
+                      .filter((p) => p.PROJECT_CODE !== mergeSource)
+                      .map((p) => (
+                        <SelectItem key={p.PROJECT_CODE} value={p.PROJECT_CODE}>
+                          <span className="font-mono text-[11px]">{p.PROJECT_CODE}</span>
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex-1 min-w-[160px]">
+                <p className="text-[11px] text-slate-500 mb-1">Reason (optional)</p>
+                <Input
+                  className="h-8 text-xs"
+                  placeholder="e.g. OCR misread G→Q"
+                  value={mergeReason}
+                  onChange={(e) => setMergeReason(e.target.value)}
+                />
+              </div>
+              <Button
+                className="h-8 text-xs"
+                onClick={handleCreateMerge}
+                disabled={!mergeSource || !mergeTarget || createMerge.isPending}
+              >
+                <GitMerge className="h-3.5 w-3.5 mr-1.5" />
+                Create merge
+              </Button>
+            </div>
+            <p className="text-[10px] text-slate-400 mt-2">
+              After creating merges, click <strong>Apply Merges to Data</strong> to rewrite EXTRACTED_LINES with the canonical codes.
+            </p>
           </section>
         </div>
       )}
