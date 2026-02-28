@@ -138,6 +138,37 @@ DESCRIBE SERVICE RECONCILIATION.PUBLIC.recon_service;
 CALL SYSTEM$GET_SERVICE_LOGS('RECONCILIATION.PUBLIC.recon_service', '0', 'recon-app', 100);
 ```
 
+## Redeploying (updating the running service)
+
+`SUSPEND`/`RESUME` does **not** re-pull `:latest` — SPCS reuses the cached image. Use a versioned tag instead:
+
+```bash
+# 1. Build
+cd frontend
+docker build --platform linux/amd64 -t recon-app .
+
+# 2. Push with a versioned tag
+REPO="sfsehol-llama-lounge-hackathon-ucgals.registry.snowflakecomputing.com/reconciliation/public/recon_repo"
+TAG="v$(date +%Y%m%d%H%M%S)"
+docker tag recon-app "$REPO/recon-app:$TAG"
+docker push "$REPO/recon-app:$TAG"
+
+# 3. Update the service spec — this triggers a fresh pull
+snow sql -q "
+ALTER SERVICE RECONCILIATION.PUBLIC.recon_service
+FROM SPECIFICATION \$\$
+spec:
+  containers:
+    - name: recon-app
+      image: ${REPO}/recon-app:${TAG}
+  endpoints:
+    - name: ui
+      port: 3000
+      public: true
+      protocol: HTTP
+\$\$;"
+```
+
 ## Troubleshooting
 
 | Symptom | Fix |
@@ -148,3 +179,4 @@ CALL SYSTEM$GET_SERVICE_LOGS('RECONCILIATION.PUBLIC.recon_service', '0', 'recon-
 | No data in app | Verify grants on tables/views to PUBLIC role |
 | Connection error in logs | Ensure using SPCS OAuth (token file), not password auth |
 | 502 at public URL | App not listening on 0.0.0.0:3000 — already fixed in image |
+| App unchanged after redeploy | `SUSPEND`/`RESUME` does **not** re-pull `:latest`. Push a versioned tag and use `ALTER SERVICE ... FROM SPECIFICATION` with the new tag to force a fresh pull. |
