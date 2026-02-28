@@ -332,8 +332,8 @@ Return ONLY valid JSON (no markdown, no extra text):
 - Verify each row total matches the TOTAL column in Time Details before finalizing.';
     END IF;
 
-    -- Call Claude 3.5 Sonnet: use PARSE_DOCUMENT→text for invoice PDFs, multimodal for images
-    IF (:doc_type_val = 'SUBSUB_INVOICE' AND :filename ILIKE '%.pdf') THEN
+    -- Call Claude 3.5 Sonnet: use PARSE_DOCUMENT→text for any PDF, multimodal TO_FILE for images
+    IF (:filename ILIKE '%.pdf') THEN
         DECLARE ocr_text TEXT;
         BEGIN
             SELECT SNOWFLAKE.CORTEX.PARSE_DOCUMENT(:stage_ref, :filename, {'mode': 'LAYOUT'})::VARCHAR INTO ocr_text;
@@ -494,7 +494,7 @@ Return ONLY valid JSON (no markdown, no extra text):
     DELETE FROM VALIDATION_RESULTS WHERE doc_id IN (SELECT doc_id FROM RAW_DOCUMENTS);
     DELETE FROM EXTRACTED_LINES    WHERE doc_id IN (SELECT doc_id FROM RAW_DOCUMENTS);
 
-    -- Single set-based INSERT: Snowflake parallelises CORTEX.COMPLETE across rows
+    -- Set-based INSERT for image files (non-PDF): Snowflake parallelises CORTEX.COMPLETE across rows
     INSERT INTO EXTRACTED_LINES
         (line_id, doc_id, worker, work_date, project, project_code, hours,
          extraction_confidence, raw_text_snippet, raw_line_json)
@@ -508,6 +508,7 @@ Return ONLY valid JSON (no markdown, no extra text):
                 TO_FILE(REGEXP_REPLACE(d.file_path, '/[^/]+$', ''), REGEXP_REPLACE(d.file_path, '^.*/', ''))
             ) AS llm_response
         FROM RAW_DOCUMENTS d
+        WHERE d.file_path NOT ILIKE '%.pdf'
     ),
     cleaned AS (
         SELECT
@@ -540,6 +541,17 @@ Return ONLY valid JSON (no markdown, no extra text):
         line_obj:raw_text_snippet::VARCHAR           AS raw_text_snippet,
         line_obj                                     AS raw_line_json
     FROM flattened;
+
+    -- Process PDF files individually via PARSE_DOCUMENT → COMPLETE (TO_FILE doesn't support PDFs)
+    DECLARE
+        pdf_cursor CURSOR FOR
+            SELECT doc_id FROM RAW_DOCUMENTS WHERE file_path ILIKE '%.pdf';
+        pdf_doc_id VARCHAR;
+    BEGIN
+        FOR pdf_doc_id IN pdf_cursor DO
+            CALL EXTRACT_DOCUMENT_MULTIMODAL(:pdf_doc_id);
+        END FOR;
+    END;
 
     -- Mark all docs as completed
     UPDATE RAW_DOCUMENTS SET ocr_status = 'COMPLETED';
