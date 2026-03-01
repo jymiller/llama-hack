@@ -8,8 +8,6 @@ import {
   useRunReconciliation,
   useMonthlyWorkerSummary,
 } from "@/hooks/queries";
-import type { MonthlyWorkerRow } from "@/lib/types";
-
 const MONTHS = [
   "January", "February", "March", "April", "May", "June",
   "July", "August", "September", "October", "November", "December",
@@ -18,14 +16,6 @@ const MONTHS = [
 const YEARS = [2024, 2025, 2026];
 
 type StepStatus = "pending" | "running" | "done" | "error";
-
-function deltaColor(delta: number | null): string {
-  if (delta == null) return "";
-  const abs = Math.abs(delta);
-  if (abs <= 2) return "text-green-600";
-  if (abs <= 10) return "text-amber-600";
-  return "text-red-600 font-semibold";
-}
 
 function StepRow({ label, status }: { label: string; status: StepStatus }) {
   return (
@@ -168,66 +158,52 @@ export default function Home() {
       </div>
 
       {/* Results */}
-      {showResults && filteredMonthly.length > 0 && (
-        <div className="bg-white rounded-2xl shadow-xl p-8 w-full max-w-3xl mt-6">
-          <h3 className="text-base font-semibold text-slate-800 mb-4">
-            Results — {MONTHS[month]} {year}
-          </h3>
-          <div className="overflow-x-auto rounded-md border border-slate-200">
-            <table className="w-full text-sm border-collapse">
-              <thead className="bg-slate-50">
-                <tr>
-                  {["Month", "Timesheet Hours", "GT Hours", "Δ GT", "Invoice Hours", "Δ Invoice"].map((h) => (
-                    <th key={h} className="px-3 py-2 text-left font-semibold text-slate-600 border-b border-slate-200">
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {filteredMonthly.map((row: MonthlyWorkerRow, i: number) => {
-                  const hasGT = row.GT_HOURS != null;
-                  const hasInvoice = row.EXT_INVOICE_HOURS > 0;
-                  const gtDelta = hasGT ? row.EXT_TIMESHEET_HOURS - row.GT_HOURS! : null;
-                  const invDelta = hasInvoice ? row.EXT_INVOICE_HOURS - row.EXT_TIMESHEET_HOURS : null;
-                  return (
-                    <tr
-                      key={row.PERIOD_MONTH}
-                      className={i % 2 === 0 ? "bg-white" : "bg-slate-50"}
-                    >
-                      <td className="px-3 py-2 border-b border-slate-100 font-mono text-xs">{row.PERIOD_MONTH}</td>
-                      <td className="px-3 py-2 border-b border-slate-100 font-mono text-right">
-                        {row.EXT_TIMESHEET_HOURS.toFixed(1)}
-                      </td>
-                      <td className="px-3 py-2 border-b border-slate-100 font-mono text-right">
-                        {hasGT ? row.GT_HOURS!.toFixed(1) : <span className="text-slate-300">—</span>}
-                      </td>
-                      <td className={`px-3 py-2 border-b border-slate-100 font-mono text-right ${deltaColor(gtDelta)}`}>
-                        {gtDelta == null
-                          ? <span className="text-slate-300">—</span>
-                          : `${gtDelta >= 0 ? "+" : ""}${gtDelta.toFixed(1)}`}
-                      </td>
-                      <td className="px-3 py-2 border-b border-slate-100 font-mono text-right">
-                        {hasInvoice ? row.EXT_INVOICE_HOURS.toFixed(1) : <span className="text-slate-300">—</span>}
-                      </td>
-                      <td className={`px-3 py-2 border-b border-slate-100 font-mono text-right ${deltaColor(invDelta)}`}>
-                        {invDelta == null
-                          ? <span className="text-slate-300">—</span>
-                          : `${invDelta >= 0 ? "+" : ""}${invDelta.toFixed(1)}`}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+      {showResults && filteredMonthly.length > 0 && (() => {
+        const RATE = 150;
+        const totalTS  = filteredMonthly.reduce((s, r) => s + r.EXT_TIMESHEET_HOURS, 0);
+        const totalInv = filteredMonthly.reduce((s, r) => s + r.EXT_INVOICE_HOURS,   0);
+        const totalGap = totalInv - totalTS;
+        const totalImpact = totalGap * RATE;
+        return (
+          <div className="bg-white rounded-2xl shadow-xl p-8 w-full max-w-2xl mt-6">
+            <h3 className="text-base font-semibold text-slate-800 mb-6">
+              {MONTHS[month]} {year} — Financial Impact
+            </h3>
+
+            {/* Big numbers */}
+            <div className="grid grid-cols-3 gap-4 mb-6">
+              <div className="text-center">
+                <p className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-1">Timesheet Hrs</p>
+                <p className="text-3xl font-bold text-slate-800">{totalTS.toFixed(1)}</p>
+              </div>
+              <div className="text-center">
+                <p className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-1">Invoice Hrs</p>
+                <p className="text-3xl font-bold text-slate-800">{totalInv > 0 ? totalInv.toFixed(1) : "—"}</p>
+              </div>
+              <div className="text-center">
+                <p className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-1">$ Impact</p>
+                <p className={`text-3xl font-bold ${Math.abs(totalGap) <= 2 ? "text-green-600" : "text-red-600"}`}>
+                  {totalInv > 0 ? `${totalImpact >= 0 ? "+" : "-"}$${Math.abs(totalImpact).toLocaleString()}` : "—"}
+                </p>
+              </div>
+            </div>
+
+            {/* Gap detail */}
+            {totalInv > 0 && (
+              <div className={`rounded-lg px-4 py-3 text-sm text-center ${Math.abs(totalGap) <= 2 ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700"}`}>
+                Invoice is <strong>{Math.abs(totalGap).toFixed(1)} hrs {totalGap > 0 ? "over" : "under"}</strong> timesheet
+                {" "}= <strong>{totalImpact >= 0 ? "+" : "-"}${Math.abs(totalImpact).toLocaleString()}</strong> at $150/hr
+              </div>
+            )}
+
+            <div className="mt-4 text-right">
+              <Link href="/reconciliation" className="text-sm text-blue-600 hover:text-blue-800 font-medium">
+                → View Full Reconciliation
+              </Link>
+            </div>
           </div>
-          <div className="mt-4 text-right">
-            <Link href="/reconciliation" className="text-sm text-blue-600 hover:text-blue-800 font-medium">
-              → View Full Reconciliation
-            </Link>
-          </div>
-        </div>
-      )}
+        );
+      })()}
 
       {showResults && filteredMonthly.length === 0 && (
         <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-3xl mt-6 text-center text-slate-500 text-sm">

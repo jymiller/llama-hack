@@ -1,280 +1,129 @@
 "use client";
 
 import { useState } from "react";
-import { ColumnDef } from "@tanstack/react-table";
-import { toast } from "sonner";
-import { RefreshCw } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
-import { DataTable } from "@/components/data-table";
 import { MetricCard } from "@/components/metric-card";
-import { StatusBadge } from "@/components/status-badge";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { useReconciliation, useRunReconciliation, useMonthlyWorkerSummary, useNicknameMaps } from "@/hooks/queries";
-import { ReconSummary, MonthlyWorkerRow } from "@/lib/types";
-import { formatCurrency, formatPct } from "@/lib/utils";
+import { useMonthlyWorkerSummary } from "@/hooks/queries";
+import { MonthlyWorkerRow } from "@/lib/types";
+import { formatCurrency } from "@/lib/utils";
+
+function gapColor(gap: number): string {
+  const abs = Math.abs(gap);
+  if (abs <= 2) return "text-green-600";
+  if (abs <= 10) return "text-amber-600";
+  return "text-red-600 font-semibold";
+}
 
 export default function ReconciliationPage() {
-  const { data, isLoading } = useReconciliation();
-  const runRecon = useRunReconciliation();
   const { data: monthly = [] } = useMonthlyWorkerSummary();
-  const { nickW } = useNicknameMaps();
   const [rate, setRate] = useState("150");
+  const rateNum = parseFloat(rate) || 0;
 
-  const summary = data?.summary ?? [];
-  const ledger = data?.ledger ?? [];
-
-  const totalApprovedHours = ledger.reduce(
-    (s, r) => s + (r.CORRECTED_HOURS ?? r.HOURS),
-    0
-  );
-  const totalComputed = summary.reduce((s, r) => s + r.COMPUTED_AMOUNT, 0);
-  const totalInvoice = summary.reduce(
-    (s, r) => s + (r.INVOICE_AMOUNT ?? 0),
-    0
-  );
-  const matchCount = summary.filter((r) => r.STATUS === "MATCH").length;
-  const varianceCount = summary.filter((r) => r.STATUS === "VARIANCE").length;
-
-  async function handleRun() {
-    const r = parseFloat(rate);
-    if (isNaN(r) || r <= 0) {
-      toast.error("Enter a valid hourly rate");
-      return;
-    }
-    toast.promise(runRecon.mutateAsync(r), {
-      loading: `Running reconciliation at ${formatCurrency(r)}/hr…`,
-      success: "Reconciliation complete",
-      error: (err) => `Error: ${err}`,
-    });
-  }
-
-  const columns: ColumnDef<ReconSummary>[] = [
-    { accessorKey: "PERIOD_MONTH", header: "Period" },
-    { accessorKey: "WORKER", header: "Worker" },
-    {
-      accessorKey: "APPROVED_HOURS",
-      header: "Approved h",
-      cell: ({ getValue }) => getValue<number>().toFixed(2),
-    },
-    {
-      accessorKey: "HOURLY_RATE",
-      header: "Rate",
-      cell: ({ getValue }) => formatCurrency(getValue<number>()),
-    },
-    {
-      accessorKey: "COMPUTED_AMOUNT",
-      header: "Computed",
-      cell: ({ getValue }) => formatCurrency(getValue<number>()),
-    },
-    {
-      accessorKey: "INVOICE_AMOUNT",
-      header: "Invoice",
-      cell: ({ getValue }) => {
-        const v = getValue<number | null>();
-        return v != null ? formatCurrency(v) : "—";
-      },
-    },
-    {
-      accessorKey: "VARIANCE",
-      header: "Variance",
-      cell: ({ getValue }) => {
-        const v = getValue<number | null>();
-        if (v == null) return "—";
-        return (
-          <span className={v === 0 ? "text-green-600" : "text-red-600"}>
-            {formatCurrency(v)}
-          </span>
-        );
-      },
-    },
-    {
-      accessorKey: "VARIANCE_PCT",
-      header: "Var %",
-      cell: ({ getValue }) => {
-        const v = getValue<number | null>();
-        if (v == null) return "—";
-        return (
-          <span className={Math.abs(v) < 1 ? "text-green-600" : "text-red-600"}>
-            {formatPct(v)}
-          </span>
-        );
-      },
-    },
-    {
-      accessorKey: "STATUS",
-      header: "Status",
-      cell: ({ getValue }) => <StatusBadge status={getValue<string>()} />,
-    },
-  ];
-
-  function deltaColor(delta: number | null): string {
-    if (delta == null) return "";
-    const abs = Math.abs(delta);
-    if (abs <= 2) return "text-green-600";
-    if (abs <= 10) return "text-amber-600";
-    return "text-red-600 font-semibold";
-  }
+  const totalTimesheet = monthly.reduce((s, r) => s + r.EXT_TIMESHEET_HOURS, 0);
+  const totalInvoice   = monthly.reduce((s, r) => s + r.EXT_INVOICE_HOURS,   0);
+  const totalGap       = totalInvoice - totalTimesheet;
+  const totalImpact    = totalGap * rateNum;
 
   return (
     <div>
       <PageHeader
         title="Reconciliation"
-        description="Monthly approved hours vs invoice amounts with variance analysis."
+        description="Monthly timesheet vs invoice gap and financial impact."
         actions={
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2">
-              <Label className="text-sm">Rate $/hr</Label>
-              <Input
-                type="number"
-                className="w-24 h-8"
-                value={rate}
-                onChange={(e) => setRate(e.target.value)}
-                min="0"
-                step="0.01"
-              />
-            </div>
-            <Button onClick={handleRun} disabled={runRecon.isPending}>
-              <RefreshCw className="h-4 w-4 mr-2" />
-              Run Reconciliation
-            </Button>
+          <div className="flex items-center gap-2">
+            <Label className="text-sm text-slate-600">Rate $/hr</Label>
+            <Input
+              type="number"
+              className="w-24 h-8"
+              value={rate}
+              onChange={(e) => setRate(e.target.value)}
+              min="0"
+              step="0.01"
+            />
           </div>
         }
       />
 
-      {/* Monthly worker comparison — shown at top */}
-      {monthly.length > 0 && (
-        <div className="mb-8">
-          <h2 className="text-base font-semibold mb-3 text-slate-800">Monthly Worker Summary</h2>
-          <div className="rounded-md border overflow-x-auto">
-            <table className="w-full text-sm border-collapse">
-              <thead className="bg-slate-50">
-                <tr>
-                  {["Month", "Timesheet Hrs", "GT Hrs", "Δ GT", "Invoice Hrs", "Δ Invoice"].map((h) => (
-                    <th key={h} className="px-3 py-2 text-left font-semibold text-slate-600 border-b border-slate-200">{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {monthly.map((row: MonthlyWorkerRow, i: number) => {
-                  const hasGT = row.GT_HOURS != null;
-                  const hasInvoice = row.EXT_INVOICE_HOURS > 0;
-                  const gtDelta = hasGT ? row.EXT_TIMESHEET_HOURS - row.GT_HOURS! : null;
-                  const invDelta = hasInvoice ? row.EXT_INVOICE_HOURS - row.EXT_TIMESHEET_HOURS : null;
-                  return (
-                    <tr key={row.PERIOD_MONTH} className={i % 2 === 0 ? "bg-white" : "bg-slate-50"}>
-                      <td className="px-3 py-2 border-b border-slate-100 font-mono text-xs">{row.PERIOD_MONTH}</td>
-                      <td className="px-3 py-2 border-b border-slate-100 font-mono text-right">{row.EXT_TIMESHEET_HOURS.toFixed(1)}</td>
-                      <td className="px-3 py-2 border-b border-slate-100 font-mono text-right">
-                        {hasGT ? row.GT_HOURS!.toFixed(1) : <span className="text-slate-300">—</span>}
-                      </td>
-                      <td className={`px-3 py-2 border-b border-slate-100 font-mono text-right ${deltaColor(gtDelta)}`}>
-                        {gtDelta == null
-                          ? <span className="text-slate-300">—</span>
-                          : `${gtDelta >= 0 ? "+" : ""}${gtDelta.toFixed(1)}`}
-                      </td>
-                      <td className="px-3 py-2 border-b border-slate-100 font-mono text-right">
-                        {hasInvoice ? row.EXT_INVOICE_HOURS.toFixed(1) : <span className="text-slate-300">—</span>}
-                      </td>
-                      <td className={`px-3 py-2 border-b border-slate-100 font-mono text-right ${deltaColor(invDelta)}`}>
-                        {invDelta == null
-                          ? <span className="text-slate-300">—</span>
-                          : `${invDelta >= 0 ? "+" : ""}${invDelta.toFixed(1)}`}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
+      {/* Summary metrics */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
         <MetricCard
-          title="Approved Hours"
-          value={totalApprovedHours.toFixed(1)}
-          description="from trusted ledger"
+          title="Timesheet Hours"
+          value={totalTimesheet.toFixed(1)}
+          description="extracted from timesheets"
         />
         <MetricCard
-          title="Computed Amount"
-          value={formatCurrency(totalComputed)}
-          description={`at $${rate}/hr`}
+          title="Invoice Hours"
+          value={totalInvoice.toFixed(1)}
+          description="extracted from invoices"
         />
         <MetricCard
-          title="Invoice Total"
-          value={totalInvoice > 0 ? formatCurrency(totalInvoice) : "—"}
-          description="from invoices"
+          title="Gap"
+          value={`${totalGap >= 0 ? "+" : ""}${totalGap.toFixed(1)} hrs`}
+          description="invoice minus timesheet"
+          deltaPositive={Math.abs(totalGap) <= 2}
         />
         <MetricCard
-          title="Match / Variance"
-          value={`${matchCount} / ${varianceCount}`}
-          description="periods"
-          deltaPositive={varianceCount === 0}
+          title="$ Impact"
+          value={rateNum > 0 ? formatCurrency(Math.abs(totalImpact)) : "—"}
+          description={totalImpact > 0 ? "overbilled" : totalImpact < 0 ? "underbilled" : "no variance"}
+          deltaPositive={Math.abs(totalImpact) === 0}
         />
       </div>
 
-      {isLoading ? (
-        <p className="text-sm text-muted-foreground">Loading…</p>
-      ) : (
-        <DataTable
-          columns={columns}
-          data={summary}
-          searchColumn="WORKER"
-          searchPlaceholder="Search by worker…"
-        />
-      )}
-
-      {ledger.length > 0 && (
-        <div className="mt-8">
-          <h2 className="text-lg font-semibold mb-4">Trusted Ledger Summary</h2>
-          <div className="rounded-md border overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-muted/50">
-                <tr>
-                  {["Doc", "Worker", "Date", "Project", "Hours", "Decision"].map(
-                    (h) => (
-                      <th
-                        key={h}
-                        className="px-3 py-2 text-left font-medium text-muted-foreground"
-                      >
-                        {h}
-                      </th>
-                    )
-                  )}
-                </tr>
-              </thead>
-              <tbody>
-                {ledger.slice(0, 50).map((row) => (
-                  <tr key={row.LINE_ID} className="border-t">
-                    <td className="px-3 py-2">{row.DOC_ID}</td>
-                    <td className="px-3 py-2">{row.WORKER ?? "—"}</td>
-                    <td className="px-3 py-2 font-mono text-xs">
-                      {row.WORK_DATE ?? "—"}
-                    </td>
-                    <td className="px-3 py-2">{row.PROJECT ?? "—"}</td>
-                    <td className="px-3 py-2 font-mono">
-                      {(row.CORRECTED_HOURS ?? row.HOURS).toFixed(2)}
-                    </td>
-                    <td className="px-3 py-2">
-                      <StatusBadge status={row.DECISION} />
-                    </td>
-                  </tr>
+      {/* Gap by month */}
+      {monthly.length > 0 && (
+        <div className="rounded-md border overflow-x-auto">
+          <table className="w-full text-sm border-collapse">
+            <thead className="bg-slate-50">
+              <tr>
+                {["Month", "Timesheet Hrs", "Invoice Hrs", "Gap Hrs", `$ Impact @ $${rate}/hr`].map((h) => (
+                  <th key={h} className="px-4 py-2 text-left font-semibold text-slate-600 border-b border-slate-200">{h}</th>
                 ))}
-                {ledger.length > 50 && (
-                  <tr>
-                    <td
-                      colSpan={6}
-                      className="px-3 py-2 text-center text-xs text-muted-foreground"
-                    >
-                      … and {ledger.length - 50} more rows
+              </tr>
+            </thead>
+            <tbody>
+              {monthly.map((row: MonthlyWorkerRow, i: number) => {
+                const gap    = row.EXT_INVOICE_HOURS - row.EXT_TIMESHEET_HOURS;
+                const impact = gap * rateNum;
+                return (
+                  <tr key={row.PERIOD_MONTH} className={i % 2 === 0 ? "bg-white" : "bg-slate-50"}>
+                    <td className="px-4 py-3 border-b border-slate-100 font-mono text-xs">{row.PERIOD_MONTH}</td>
+                    <td className="px-4 py-3 border-b border-slate-100 font-mono text-right">{row.EXT_TIMESHEET_HOURS.toFixed(1)}</td>
+                    <td className="px-4 py-3 border-b border-slate-100 font-mono text-right">
+                      {row.EXT_INVOICE_HOURS > 0 ? row.EXT_INVOICE_HOURS.toFixed(1) : <span className="text-slate-300">—</span>}
+                    </td>
+                    <td className={`px-4 py-3 border-b border-slate-100 font-mono text-right ${gapColor(gap)}`}>
+                      {row.EXT_INVOICE_HOURS > 0
+                        ? `${gap >= 0 ? "+" : ""}${gap.toFixed(1)}`
+                        : <span className="text-slate-300">—</span>}
+                    </td>
+                    <td className={`px-4 py-3 border-b border-slate-100 font-mono text-right ${gapColor(gap)}`}>
+                      {row.EXT_INVOICE_HOURS > 0 && rateNum > 0
+                        ? `${impact >= 0 ? "+" : "-"}${formatCurrency(Math.abs(impact))}`
+                        : <span className="text-slate-300">—</span>}
                     </td>
                   </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+                );
+              })}
+            </tbody>
+            {monthly.length > 1 && (
+              <tfoot className="bg-slate-100 font-semibold">
+                <tr>
+                  <td className="px-4 py-2 text-slate-600">Total</td>
+                  <td className="px-4 py-2 font-mono text-right">{totalTimesheet.toFixed(1)}</td>
+                  <td className="px-4 py-2 font-mono text-right">{totalInvoice.toFixed(1)}</td>
+                  <td className={`px-4 py-2 font-mono text-right ${gapColor(totalGap)}`}>
+                    {`${totalGap >= 0 ? "+" : ""}${totalGap.toFixed(1)}`}
+                  </td>
+                  <td className={`px-4 py-2 font-mono text-right ${gapColor(totalGap)}`}>
+                    {rateNum > 0 ? `${totalImpact >= 0 ? "+" : "-"}${formatCurrency(Math.abs(totalImpact))}` : "—"}
+                  </td>
+                </tr>
+              </tfoot>
+            )}
+          </table>
         </div>
       )}
     </div>
