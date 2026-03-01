@@ -26,9 +26,15 @@ The entire Next.js frontend, Snowflake stored procedures, SQL schema, and API ro
 
 ## The Problem
 
-Subcontracting billing chains create a silent audit gap: the prime contractor holds timesheet screenshots, the agency holds invoices, and neither side has a structured system of record. Every month, someone manually compares images to spreadsheets, hoping nothing slipped through.
+Automating Business Processes with AI can be error prone without governance and evaluations.  This example of a back office process - that is common in every business, is demonstrated as a potential process to be automated.  
+In this case, tedious back-office reconciliation of invoices against timesheets provides real value -- 
+Every month, someone manually compares images to spreadsheets, hoping nothing slipped through.
+Time consuming work that can be done by agents.
 
 This system eliminates that gap — screenshots in, trusted ledger out.
+
+This demo shows the first level of automation - AI augmentation.
+With more time, we could develop a platform for Agentic Process Automation with Crew AI.
 
 ---
 
@@ -38,7 +44,7 @@ This system eliminates that gap — screenshots in, trusted ledger out.
 |---|---|
 | **URL** | [Agentic Reconciliation](https://iqzdjx-sfsehol-llama-lounge-hackathon-ucgals.snowflakecomputing.app) |
 | **Username** | `JUDGE` |
-| **Password** | *(ask the team)* |
+| **Password** | *The Team Name* |
 
 ---
 
