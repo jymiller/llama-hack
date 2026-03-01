@@ -18,7 +18,7 @@ This system eliminates that gap — screenshots in, trusted ledger out.
 
 | | |
 |---|---|
-| **URL** | `https://iqzdjx-sfsehol-llama-lounge-hackathon-ucgals.snowflakecomputing.app` |
+| **URL** | [Agentic Reconciliation](https://iqzdjx-sfsehol-llama-lounge-hackathon-ucgals.snowflakecomputing.app) |
 | **Username** | `JUDGE` |
 | **Password** | *(ask the team)* |
 
