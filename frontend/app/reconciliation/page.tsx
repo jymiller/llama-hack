@@ -9,7 +9,8 @@ import { useMonthlyWorkerSummary } from "@/hooks/queries";
 import { MonthlyWorkerRow } from "@/lib/types";
 import { formatCurrency } from "@/lib/utils";
 
-function gapColor(gap: number): string {
+function gapColor(gap: number | null): string {
+  if (gap == null) return "";
   const abs = Math.abs(gap);
   if (abs <= 2) return "text-green-600";
   if (abs <= 10) return "text-amber-600";
@@ -78,29 +79,44 @@ export default function ReconciliationPage() {
           <table className="w-full text-sm border-collapse">
             <thead className="bg-slate-50">
               <tr>
-                {["Month", "Timesheet Hrs", "Invoice Hrs", "Gap Hrs", `$ Impact @ $${rate}/hr`].map((h) => (
-                  <th key={h} className="px-4 py-2 text-left font-semibold text-slate-600 border-b border-slate-200">{h}</th>
-                ))}
+                <th className="px-4 py-2 text-left font-semibold text-slate-600 border-b border-slate-200">Month</th>
+                <th className="px-4 py-2 text-right font-semibold text-slate-600 border-b border-slate-200">AI Extracted Hrs</th>
+                <th className="px-4 py-2 text-right font-semibold text-slate-600 border-b border-slate-200">Ground Truth Hrs</th>
+                <th className="px-4 py-2 text-right font-semibold text-slate-600 border-b border-slate-200">Δ GT</th>
+                <th className="px-4 py-2 text-right font-semibold text-slate-600 border-b border-slate-200">Invoice Hrs</th>
+                <th className="px-4 py-2 text-right font-semibold text-slate-600 border-b border-slate-200">Gap Hrs</th>
+                <th className="px-4 py-2 text-right font-semibold text-slate-600 border-b border-slate-200">{`$ Impact @ $${rate}/hr`}</th>
               </tr>
             </thead>
             <tbody>
               {monthly.map((row: MonthlyWorkerRow, i: number) => {
-                const gap    = row.EXT_INVOICE_HOURS - row.EXT_TIMESHEET_HOURS;
-                const impact = gap * rateNum;
+                const hasGT     = row.GT_HOURS != null;
+                const hasInvoice = row.EXT_INVOICE_HOURS > 0;
+                const gtDelta   = hasGT ? row.EXT_TIMESHEET_HOURS - row.GT_HOURS! : null;
+                const gap       = row.EXT_INVOICE_HOURS - row.EXT_TIMESHEET_HOURS;
+                const impact    = gap * rateNum;
                 return (
                   <tr key={row.PERIOD_MONTH} className={i % 2 === 0 ? "bg-white" : "bg-slate-50"}>
                     <td className="px-4 py-3 border-b border-slate-100 font-mono text-xs">{row.PERIOD_MONTH}</td>
                     <td className="px-4 py-3 border-b border-slate-100 font-mono text-right">{row.EXT_TIMESHEET_HOURS.toFixed(1)}</td>
                     <td className="px-4 py-3 border-b border-slate-100 font-mono text-right">
-                      {row.EXT_INVOICE_HOURS > 0 ? row.EXT_INVOICE_HOURS.toFixed(1) : <span className="text-slate-300">—</span>}
+                      {hasGT ? row.GT_HOURS!.toFixed(1) : <span className="text-slate-300">—</span>}
+                    </td>
+                    <td className={`px-4 py-3 border-b border-slate-100 font-mono text-right ${gapColor(gtDelta)}`}>
+                      {gtDelta == null
+                        ? <span className="text-slate-300">—</span>
+                        : `${gtDelta >= 0 ? "+" : ""}${gtDelta.toFixed(1)}`}
+                    </td>
+                    <td className="px-4 py-3 border-b border-slate-100 font-mono text-right">
+                      {hasInvoice ? row.EXT_INVOICE_HOURS.toFixed(1) : <span className="text-slate-300">—</span>}
                     </td>
                     <td className={`px-4 py-3 border-b border-slate-100 font-mono text-right ${gapColor(gap)}`}>
-                      {row.EXT_INVOICE_HOURS > 0
+                      {hasInvoice
                         ? `${gap >= 0 ? "+" : ""}${gap.toFixed(1)}`
                         : <span className="text-slate-300">—</span>}
                     </td>
                     <td className={`px-4 py-3 border-b border-slate-100 font-mono text-right ${gapColor(gap)}`}>
-                      {row.EXT_INVOICE_HOURS > 0 && rateNum > 0
+                      {hasInvoice && rateNum > 0
                         ? `${impact >= 0 ? "+" : "-"}${formatCurrency(Math.abs(impact))}`
                         : <span className="text-slate-300">—</span>}
                     </td>
@@ -113,6 +129,8 @@ export default function ReconciliationPage() {
                 <tr>
                   <td className="px-4 py-2 text-slate-600">Total</td>
                   <td className="px-4 py-2 font-mono text-right">{totalTimesheet.toFixed(1)}</td>
+                  <td className="px-4 py-2 font-mono text-right text-slate-400">—</td>
+                  <td className="px-4 py-2 font-mono text-right text-slate-400">—</td>
                   <td className="px-4 py-2 font-mono text-right">{totalInvoice.toFixed(1)}</td>
                   <td className={`px-4 py-2 font-mono text-right ${gapColor(totalGap)}`}>
                     {`${totalGap >= 0 ? "+" : ""}${totalGap.toFixed(1)}`}
