@@ -1,8 +1,26 @@
 # Timesheet Reconciliation Agent
 
-Converts timesheet screenshots and subcontract invoice PDFs into a trusted, validated financial ledger — automatically. Built on **Snowflake Cortex** (Claude 3.5 Sonnet) and a **Next.js** analyst app.
+> Built with Claude Code. Powered by Claude Cortex. Runs entirely in Snowflake.
+
+Two layers of AI — one to build it, one to run it.
 
 Built for the [Llama Lounge Agentic Hackathon](https://cerebralvalley.ai/e/llama-lounge-agentic-hackathon).
+
+---
+
+## AI in this project
+
+This project is a dogfood story: **Anthropic's AI built a product powered by Anthropic's AI, deployed entirely inside Snowflake.**
+
+### Layer 1 — Claude Code built the app
+
+The entire Next.js frontend, Snowflake stored procedures, SQL schema, and API routes were written by **Claude Code (claude-sonnet-4-6)** via an iterative pair-programming session. Zero boilerplate written by hand.
+
+### Layer 2 — Claude 3.5 Sonnet runs the extraction
+
+- Timesheet screenshots (JPG) are sent directly to `claude-3-5-sonnet` via `SNOWFLAKE.CORTEX.COMPLETE` with multimodal `TO_FILE()` — no OCR pre-processing
+- Invoice PDFs are parsed by `SNOWFLAKE.CORTEX.PARSE_DOCUMENT`, then structured by the same model
+- All AI inference happens inside Snowflake as a SQL stored procedure call — no external API, no Python runtime, no separate service
 
 ---
 
@@ -27,7 +45,7 @@ This system eliminates that gap — screenshots in, trusted ledger out.
 ## How It Works
 
 1. **Upload** timesheet images and invoice PDFs via the Next.js app
-2. **Extract** — Snowflake stored procedures call `SNOWFLAKE.CORTEX.COMPLETE` (Claude 3.5 Sonnet) to parse every image and PDF directly — no Python, no agents
+2. **Claude reads the image** — a NetSuite timesheet screenshot is sent pixel-perfect to Claude 3.5 Sonnet inside Snowflake. No OCR. No preprocessing. The model extracts worker, date, project code, and hours directly from the visual layout.
 3. **Curate** — fuzzy-match suspects (edit-distance ≤ 3) surface OCR misreads; analysts confirm or merge project codes
 4. **Approve** — analysts approve, reject, or correct extracted lines per row
 5. **Reconcile** — `TRUSTED_LEDGER` view becomes the financial system of record; `RECON_SUMMARY` flags variances between timesheet hours and invoice totals
