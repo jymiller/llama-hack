@@ -1,6 +1,6 @@
 # Timesheet Reconciliation Agent
 
-> Built with Claude Code. Powered by Claude Cortex. Runs entirely in Snowflake.
+> Built with Claude Code. Powered by Claude Cortex. Deployed as a Docker container inside Snowpark Container Services — runs entirely within Snowflake.
 
 Two layers of AI — one to build it, one to run it.
 
@@ -14,7 +14,7 @@ This project is a dogfood story: **Anthropic's AI built a product powered by Ant
 
 ### Layer 1 — Claude Code built the app
 
-The entire Next.js frontend, Snowflake stored procedures, SQL schema, and API routes were written by **Claude Code (claude-sonnet-4-6)** via an iterative pair-programming session. Zero boilerplate written by hand.
+The entire Next.js frontend, Snowflake stored procedures, SQL schema, and API routes were written by **Claude Code (claude-sonnet-4-6)** via an iterative pair-programming session. Zero boilerplate written by hand. The finished app is packaged as a Docker image and runs as a **React/Node.js container inside Snowpark Container Services**, with Snowflake's Secure Data Access keeping all queries within the platform perimeter.
 
 ### Layer 2 — Claude 3.5 Sonnet runs the extraction
 
@@ -59,10 +59,11 @@ This system eliminates that gap — screenshots in, trusted ledger out.
 | Data store | Snowflake `RECONCILIATION.PUBLIC` |
 | AI extraction | `SNOWFLAKE.CORTEX.COMPLETE` — claude-3-5-sonnet (multimodal for images, text for PDFs) |
 | PDF parsing | `SNOWFLAKE.CORTEX.PARSE_DOCUMENT` |
-| Frontend | Next.js 16 (App Router) + TypeScript |
+| Frontend | Next.js 16 (App Router) + TypeScript — React/Node.js app |
 | UI | Tailwind CSS + shadcn/ui + TanStack Query v5 |
-| DB client | snowflake-sdk (Node.js) from Next.js API routes |
-| Deployment | Snowpark Container Services (SPCS) |
+| DB client | snowflake-sdk (Node.js) via Next.js API routes — **secure data access inside the Snowflake perimeter** |
+| Container | Docker image built from `frontend/` and pushed to a Snowflake image registry |
+| Deployment | **Snowpark Container Services (SPCS)** — the Node.js server runs inside Snowflake's managed container runtime; no data leaves the platform |
 
 ---
 
