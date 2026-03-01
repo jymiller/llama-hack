@@ -1,6 +1,6 @@
 # Timesheet Reconciliation Agent
 
-> Built with Claude Code. Powered by Claude Cortex. Deployed as a Docker container inside Snowpark Container Services — runs entirely within Snowflake.
+> Built with Claude Code. Powered by Cortex Code. Deployed as a Docker container inside Snowpark Container Services — runs entirely within Snowflake.
 
 Two layers of AI — one to build it, one to run it.
 
