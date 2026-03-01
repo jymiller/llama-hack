@@ -542,12 +542,15 @@ Return ONLY valid JSON (no markdown, no extra text):
     FROM flattened;
 
     -- Process PDF files individually via PARSE_DOCUMENT → COMPLETE (TO_FILE doesn't support PDFs)
+    -- NOTE: FOR loop implicitly declares its variable as RECORD, so we use a separate VARCHAR
+    -- to hold the extracted doc_id before passing it to CALL.
     DECLARE
         pdf_cursor CURSOR FOR
             SELECT doc_id FROM RAW_DOCUMENTS WHERE file_path ILIKE '%.pdf';
         pdf_doc_id VARCHAR;
     BEGIN
-        FOR pdf_doc_id IN pdf_cursor DO
+        FOR pdf_rec IN pdf_cursor DO
+            pdf_doc_id := pdf_rec.doc_id;
             CALL EXTRACT_DOCUMENT_MULTIMODAL(:pdf_doc_id);
         END FOR;
     END;

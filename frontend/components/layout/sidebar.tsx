@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
 import {
   FileText,
@@ -17,8 +18,50 @@ const NAV_ITEMS = [
   { href: "/reconciliation", label: "Reconciliation", icon: DollarSign },
 ];
 
+type HealthStatus = "ok" | "degraded" | "down" | "checking";
+
+function useHealth(intervalMs = 30_000) {
+  const [status, setStatus] = useState<HealthStatus>("checking");
+  const [latency, setLatency] = useState<number | null>(null);
+
+  async function check() {
+    try {
+      const r = await fetch("/api/health");
+      const data = await r.json();
+      setStatus(data.status as HealthStatus);
+      setLatency(data.snowflake?.latency_ms ?? null);
+    } catch {
+      setStatus("down");
+      setLatency(null);
+    }
+  }
+
+  useEffect(() => {
+    check();
+    const id = setInterval(check, intervalMs);
+    return () => clearInterval(id);
+  }, [intervalMs]);
+
+  return { status, latency };
+}
+
+const DOT_CLASSES: Record<HealthStatus, string> = {
+  ok: "bg-green-400",
+  degraded: "bg-yellow-400",
+  down: "bg-red-500",
+  checking: "bg-gray-500 animate-pulse",
+};
+
+const STATUS_LABELS: Record<HealthStatus, string> = {
+  ok: "Connected",
+  degraded: "Degraded",
+  down: "Offline",
+  checking: "Checking…",
+};
+
 export function Sidebar() {
   const pathname = usePathname();
+  const { status, latency } = useHealth();
 
   return (
     <aside className="fixed inset-y-0 left-0 z-50 w-56 bg-gray-900 text-white flex flex-col">
@@ -50,8 +93,17 @@ export function Sidebar() {
           );
         })}
       </nav>
-      <div className="px-4 py-3 border-t border-gray-700 text-xs text-gray-500">
-        RECONCILIATION.PUBLIC
+      <div className="px-4 py-3 border-t border-gray-700">
+        <div className="flex items-center gap-2">
+          <span className={cn("h-2 w-2 rounded-full shrink-0", DOT_CLASSES[status])} />
+          <span className="text-xs text-gray-400">
+            {STATUS_LABELS[status]}
+            {latency !== null && status === "ok" && (
+              <span className="text-gray-600 ml-1">({latency}ms)</span>
+            )}
+          </span>
+        </div>
+        <p className="text-xs text-gray-600 mt-0.5">RECONCILIATION.PUBLIC</p>
       </div>
     </aside>
   );

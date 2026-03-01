@@ -1,12 +1,94 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { CheckCircle2, Loader2, XCircle, Circle } from "lucide-react";
 import {
   useRunExtractionAll,
   useMonthlyWorkerSummary,
 } from "@/hooks/queries";
+
+type HealthData = {
+  status: "ok" | "degraded" | "down";
+  snowflake: { connected: boolean; latency_ms: number | null };
+  pipeline: {
+    total_docs: number;
+    docs_extracted: number;
+    docs_pending: number;
+    total_lines: number;
+    avg_confidence: number | null;
+  } | null;
+  checked_at: string;
+};
+
+function SystemStatus() {
+  const [health, setHealth] = useState<HealthData | null>(null);
+
+  async function refresh() {
+    try {
+      const r = await fetch("/api/health");
+      setHealth(await r.json());
+    } catch {
+      setHealth(null);
+    }
+  }
+
+  useEffect(() => {
+    refresh();
+    const id = setInterval(refresh, 30_000);
+    return () => clearInterval(id);
+  }, []);
+
+  if (!health) return null;
+
+  const { status, snowflake, pipeline } = health;
+
+  const dotColor =
+    status === "ok" ? "bg-green-400" :
+    status === "degraded" ? "bg-yellow-400" : "bg-red-500";
+
+  const statusLabel =
+    status === "ok" ? "Snowflake connected" :
+    status === "degraded" ? "Snowflake connected — extractions pending" :
+    "Snowflake offline";
+
+  return (
+    <div className="bg-white/10 backdrop-blur rounded-xl px-5 py-4 w-full max-w-md mt-4 text-white text-sm">
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <span className={`h-2 w-2 rounded-full ${dotColor}`} />
+          <span className="font-medium">{statusLabel}</span>
+        </div>
+        {snowflake.latency_ms !== null && (
+          <span className="text-white/50 text-xs">{snowflake.latency_ms}ms</span>
+        )}
+      </div>
+      {pipeline && (
+        <div className="grid grid-cols-3 gap-2 text-center">
+          <div>
+            <p className="text-white/50 text-xs uppercase tracking-wide">Docs</p>
+            <p className="text-lg font-semibold">{pipeline.total_docs}</p>
+            <p className="text-white/40 text-xs">{pipeline.docs_extracted} extracted</p>
+          </div>
+          <div>
+            <p className="text-white/50 text-xs uppercase tracking-wide">Lines</p>
+            <p className="text-lg font-semibold">{pipeline.total_lines}</p>
+            <p className="text-white/40 text-xs">from Claude</p>
+          </div>
+          <div>
+            <p className="text-white/50 text-xs uppercase tracking-wide">Confidence</p>
+            <p className="text-lg font-semibold">
+              {pipeline.avg_confidence !== null
+                ? `${(pipeline.avg_confidence * 100).toFixed(0)}%`
+                : "—"}
+            </p>
+            <p className="text-white/40 text-xs">avg</p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 const MONTHS = [
   "January", "February", "March", "April", "May", "June",
   "July", "August", "September", "October", "November", "December",
@@ -149,6 +231,8 @@ export default function Home() {
           </div>
         )}
       </div>
+
+      <SystemStatus />
 
       {/* Results */}
       {showResults && filteredMonthly.length > 0 && (() => {
