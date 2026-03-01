@@ -151,7 +151,7 @@ export default function ReconciliationPage() {
             <table className="w-full text-sm border-collapse">
               <thead className="bg-slate-50">
                 <tr>
-                  {["Worker", "Month", "Timesheet Hrs", "GT Hrs", "Δ GT", "Invoice Hrs", "Δ Invoice"].map((h) => (
+                  {["Month", "Timesheet Hrs", "GT Hrs", "Δ GT", "Invoice Hrs", "Δ Invoice"].map((h) => (
                     <th key={h} className="px-3 py-2 text-left font-semibold text-slate-600 border-b border-slate-200">{h}</th>
                   ))}
                 </tr>
@@ -163,8 +163,7 @@ export default function ReconciliationPage() {
                   const gtDelta = hasGT ? row.EXT_TIMESHEET_HOURS - row.GT_HOURS! : null;
                   const invDelta = hasInvoice ? row.EXT_INVOICE_HOURS - row.EXT_TIMESHEET_HOURS : null;
                   return (
-                    <tr key={`${row.WORKER}-${row.PERIOD_MONTH}`} className={i % 2 === 0 ? "bg-white" : "bg-slate-50"}>
-                      <td className="px-3 py-2 border-b border-slate-100 font-medium">{nickW(row.WORKER)}</td>
+                    <tr key={row.PERIOD_MONTH} className={i % 2 === 0 ? "bg-white" : "bg-slate-50"}>
                       <td className="px-3 py-2 border-b border-slate-100 font-mono text-xs">{row.PERIOD_MONTH}</td>
                       <td className="px-3 py-2 border-b border-slate-100 font-mono text-right">{row.EXT_TIMESHEET_HOURS.toFixed(1)}</td>
                       <td className="px-3 py-2 border-b border-slate-100 font-mono text-right">

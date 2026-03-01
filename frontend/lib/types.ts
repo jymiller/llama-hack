@@ -44,7 +44,6 @@ export interface LedgerApproval {
 }
 
 export interface MonthlyWorkerRow {
-  WORKER: string;
   PERIOD_MONTH: string;
   EXT_TIMESHEET_HOURS: number;
   EXT_INVOICE_HOURS: number;

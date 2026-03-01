@@ -177,7 +177,7 @@ export default function Home() {
             <table className="w-full text-sm border-collapse">
               <thead className="bg-slate-50">
                 <tr>
-                  {["Worker", "Timesheet Hours", "GT Hours", "Δ GT", "Invoice Hours", "Δ Invoice"].map((h) => (
+                  {["Month", "Timesheet Hours", "GT Hours", "Δ GT", "Invoice Hours", "Δ Invoice"].map((h) => (
                     <th key={h} className="px-3 py-2 text-left font-semibold text-slate-600 border-b border-slate-200">
                       {h}
                     </th>
@@ -192,10 +192,10 @@ export default function Home() {
                   const invDelta = hasInvoice ? row.EXT_INVOICE_HOURS - row.EXT_TIMESHEET_HOURS : null;
                   return (
                     <tr
-                      key={`${row.WORKER}-${row.PERIOD_MONTH}`}
+                      key={row.PERIOD_MONTH}
                       className={i % 2 === 0 ? "bg-white" : "bg-slate-50"}
                     >
-                      <td className="px-3 py-2 border-b border-slate-100 font-medium">{row.WORKER}</td>
+                      <td className="px-3 py-2 border-b border-slate-100 font-mono text-xs">{row.PERIOD_MONTH}</td>
                       <td className="px-3 py-2 border-b border-slate-100 font-mono text-right">
                         {row.EXT_TIMESHEET_HOURS.toFixed(1)}
                       </td>
