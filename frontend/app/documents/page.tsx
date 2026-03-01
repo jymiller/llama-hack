@@ -268,7 +268,7 @@ export default function DocumentsPage() {
                 selectedDoc.DOC_TYPE === "TIMESHEET" ? "bg-blue-100 text-blue-800"
                 : selectedDoc.DOC_TYPE === "MY_INVOICE" ? "bg-purple-100 text-purple-800"
                 : "bg-orange-100 text-orange-800"
-              }>{selectedDoc.DOC_TYPE.replace(/_/g, " ")}</Badge>
+              }>{DOC_TYPE_LABELS[selectedDoc.DOC_TYPE] ?? selectedDoc.DOC_TYPE.replace(/_/g, " ")}</Badge>
               {selectedLines.length > 0 && (
                 <span className="text-xs text-green-700 font-medium">{selectedLines.length} lines extracted</span>
               )}

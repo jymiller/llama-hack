@@ -379,10 +379,9 @@ Return ONLY valid JSON (no markdown, no extra text):
 
         INSERT INTO EXTRACTED_LINES
             (line_id, doc_id, worker, work_date, project, project_code, hours,
-             extraction_confidence, raw_text_snippet, raw_line_json)
-        VALUES
-            (:line_id_val, :P_DOC_ID, :worker_val, :work_date_val::DATE, :project_val,
-             :project_code_val, :hours_val, :confidence_val, :snippet_val, :line_obj);
+             extraction_confidence, raw_text_snippet)
+        SELECT :line_id_val, :P_DOC_ID, :worker_val, :work_date_val::DATE, :project_val,
+               :project_code_val, :hours_val, :confidence_val, :snippet_val;
 
         i := :i + 1;
     END WHILE;
