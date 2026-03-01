@@ -5,7 +5,6 @@ import Link from "next/link";
 import { CheckCircle2, Loader2, XCircle, Circle } from "lucide-react";
 import {
   useRunExtractionAll,
-  useRunReconciliation,
   useMonthlyWorkerSummary,
 } from "@/hooks/queries";
 const MONTHS = [
@@ -45,14 +44,13 @@ export default function Home() {
   const now = new Date();
   const [month, setMonth] = useState(now.getMonth());
   const [year, setYear] = useState(now.getFullYear());
-  const [steps, setSteps] = useState<[StepStatus, StepStatus, StepStatus]>(
-    ["pending", "pending", "pending"]
+  const [steps, setSteps] = useState<[StepStatus, StepStatus]>(
+    ["pending", "pending"]
   );
   const [running, setRunning] = useState(false);
   const [showResults, setShowResults] = useState(false);
 
   const extractAll = useRunExtractionAll();
-  const runRecon = useRunReconciliation();
   const { data: monthly = [], refetch: refetchMonthly } = useMonthlyWorkerSummary();
 
   const selectedMonthStr = `${year}-${String(month + 1).padStart(2, "0")}`;
@@ -63,22 +61,18 @@ export default function Home() {
   async function handleRun() {
     setRunning(true);
     setShowResults(false);
-    setSteps(["running", "pending", "pending"]);
+    setSteps(["running", "pending"]);
 
     try {
       await extractAll.mutateAsync(undefined);
-      setSteps(["done", "running", "pending"]);
+      setSteps(["done", "running"]);
 
-      await new Promise((r) => setTimeout(r, 800));
-      setSteps(["done", "done", "running"]);
-
-      await runRecon.mutateAsync(150);
       await refetchMonthly();
-      setSteps(["done", "done", "done"]);
+      setSteps(["done", "done"]);
       setShowResults(true);
     } catch {
       setSteps((prev) => {
-        const next = [...prev] as [StepStatus, StepStatus, StepStatus];
+        const next = [...prev] as [StepStatus, StepStatus];
         const idx = next.findIndex((s) => s === "running");
         if (idx >= 0) next[idx] = "error";
         return next;
@@ -151,8 +145,7 @@ export default function Home() {
         {steps[0] !== "pending" && (
           <div className="mt-6 space-y-2 border-t border-slate-100 pt-4">
             <StepRow label="Extracting documents…" status={steps[0]} />
-            <StepRow label="Comparing ground truth…" status={steps[1]} />
-            <StepRow label="Reconciling invoice hours…" status={steps[2]} />
+            <StepRow label="Computing gap…" status={steps[1]} />
           </div>
         )}
       </div>
